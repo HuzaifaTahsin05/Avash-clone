@@ -1,0 +1,5 @@
+project: avash
+language: typescript
+frameworks:
+  - react
+  - hono

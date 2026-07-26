@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "supabase",
+      "args": ["status"]
+    }
+  },
+  "editor.formatOnSave": true
+}

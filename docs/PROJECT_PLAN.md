@@ -1,0 +1,813 @@
+# Avash (আভাস) — সুরক্ষার আগাম বার্তা (Shurokkhar Agam Barta) | Engineering Blueprint (Single Source of Truth)
+
+*Prepared as the canonical reference for all human and AI-agent contributors. Every implementation decision, PR, and doc update must trace back to this document. If code and this doc disagree, this doc wins until updated in the same PR.*
+
+> **Correction log:** Frontend is **React 18 + Vite** (client-rendered SPA/PWA), **not Next.js**. This removes server-rendering and file-based API routes from the frontend app entirely, which changes where secret-touching logic, middleware, and background jobs live. See §1, §3, and ADR-007/008 for the full architectural consequence of this change — it is not a cosmetic swap.
+
+---
+
+## 0. Ground Rules (Read First)
+
+1. **Vertical slices only.** One feature, fully working end-to-end (DB → API → UI → docs → 3 manual tests), before starting the next. See §14 for slice order.
+2. **Secrets never touch the client.** `apps/web` is a static SPA shipped to the browser — it must never import, bundle, or reference a non-`VITE_PUBLIC_`-prefixed secret. Anything touching Gemini, Supabase service role, OpenWeatherMap, Upstash, Turnstile secret, or VAPID private keys lives in `apps/api` (Cloudflare Worker) or in GitHub Actions job scripts — never in `apps/web`.
+3. **One types source.** All shared TS interfaces/DTOs/zod schemas live in `packages/types`. No inline duplicate interfaces anywhere else.
+4. **Optional chaining is mandatory** on every external/untrusted access point: `fetch()` responses, Supabase query results, `JSON.parse`, `localStorage`/`IndexedDB`, browser Geolocation/Notification/Push APIs, third-party SDK callbacks (Leaflet/Mapbox events), Gemini responses. PR reviewers must grep for raw `.property` access on any of these before approval.
+5. **No test scripts for frontend.** Every frontend feature gets 3 manual test passes (§10) documented in the PR description.
+6. **Docs are code.** A PR that changes behavior without updating `docs/` is incomplete, not "done later."
+7. **Engineering correction from brief:** true per-request ML inference *inside* a Cloudflare Worker at the free tier is not realistic (10ms CPU-time cap on the free plan applies to actual compute, not I/O wait — WASM tensor math is compute-bound and will blow the cap across many regions). §5.3 documents the honest, working architecture that still satisfies the "zero-cost, edge, near-0ms perceived latency" goal.
+8. **No SSR.** `apps/web` is a client-rendered SPA. Public risk-map SEO is a deliberately accepted trade-off (ADR-008) — do not attempt to bolt on server rendering piecemeal; if it's ever needed, it gets its own ADR and migration plan.
+
+---
+
+## 1. Repository Layout
+
+```
+.
+├── .agents/                       # Machine-readable agent task contracts
+├── .claude/                       # Claude project settings + reusable skills
+├── .codex/                        # Codex CLI config
+├── .cursor/                       # Cursor MCP server config
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml                 # lint → typecheck → unit test → build (both apps)
+│   │   ├── codeql.yml             # SAST, weekly + on PR
+│   │   ├── deploy-web.yml         # Vite build → Cloudflare Pages
+│   │   ├── deploy-api.yml         # Wrangler deploy → Cloudflare Workers
+│   │   ├── cron-weather-ingest.yml   # scheduled: OpenWeatherMap → Supabase
+│   │   ├── cron-batch-predict.yml    # scheduled: ONNX inference → Supabase + push alerts
+│   │   └── cron-news-scan.yml        # scheduled: news scrape → Gemini classify → Supabase
+│   └── dependabot.yml             # weekly npm + pip + actions updates
+├── apps/
+│   ├── web/                       # React 18 + Vite PWA — pure static SPA, Cloudflare Pages
+│   │   ├── src/
+│   │   │   ├── pages/              # RiskMap, Report, Weather, Resources, SymptomChecker, admin/*
+│   │   │   ├── features/           # map/, reports/, resources/, symptom-checker/, alerts/ (feature-sliced)
+│   │   │   ├── components/         # dumb/presentational, app-specific (not shared design system)
+│   │   │   ├── lib/                # supabaseClient.ts, apiClient.ts, queryClient.ts, onnxClient.ts
+│   │   │   ├── hooks/               # useGeolocation, useOnlineStatus, usePushSubscription, etc.
+│   │   │   ├── router.tsx           # React Router route tree + lazy-loaded route guards
+│   │   │   ├── App.tsx
+│   │   │   └── main.tsx
+│   │   ├── public/                 # manifest.webmanifest, icons, offline.html, _headers, _redirects
+│   │   ├── vite.config.ts          # vite-plugin-pwa (Workbox) + bundle-analyzer + env validation
+│   │   └── index.html
+│   └── api/                        # Hono on Cloudflare Workers — ALL secret-touching request logic
+│       ├── src/
+│       │   ├── routes/              # risk-map.ts, resources.ts, reports.ts, symptom-check.ts, alerts.ts
+│       │   ├── middleware/          # cors.ts, security-headers.ts, rate-limit.ts, turnstile.ts, auth.ts
+│       │   ├── lib/                 # supabaseAdmin.ts, geminiClient.ts, jwtVerify.ts
+│       │   └── index.ts             # Hono app entry, route mounting
+│       ├── wrangler.toml
+│       └── package.json
+├── ml/                              # OFFLINE pipeline — Python, never deployed as a live app
+│   ├── notebooks/                   # EDA (throwaway)
+│   ├── training/                    # feature_engineering.py, train.py, export_onnx.py, config.py
+│   ├── evaluation/                  # backtest.py (walk-forward CV), model_card.py
+│   ├── serving/                     # predict.py — batch inference, run by cron-batch-predict.yml
+│   └── data/                        # DVC pointers only — raw CSVs gitignored
+├── packages/
+│   ├── types/                       # single canonical source — domain.ts, api.ts, ml.ts (barrel index.ts)
+│   ├── config/                      # eslint-config, tsconfig base, tailwind-preset
+│   ├── ui/                          # shared React design system (framework-agnostic of routing)
+│   ├── db/                          # supabase/migrations/*.sql, RLS policies, generated Supabase types
+│   ├── geo/                         # PostGIS query builders (ST_DWithin, bbox clip), turf.js helpers
+│   ├── ml-inference/                # model.onnx (versioned), onnxruntime-web wrapper for browser use
+│   ├── security/                    # rate-limiter (Upstash), turnstile verifier, prompt-injection guard, zod schemas
+│   └── logger/                      # pino structured logger + PII redaction
+├── scripts/
+│   ├── setup.sh
+│   ├── seed-db.ts
+│   ├── refresh-materialized-views.ts
+│   └── jobs/
+│       ├── weather-ingest.ts        # Node/TS — called by cron-weather-ingest.yml
+│       └── news-scan.ts             # Node/TS — called by cron-news-scan.yml
+├── docs/
+│   ├── adr/
+│   ├── standards/
+│   ├── data-schema/
+│   ├── ml/
+│   └── security/
+├── AGENTS.md
+├── CLAUDE.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+├── package.json
+├── pnpm-workspace.yaml
+└── turbo.json
+```
+
+**Why two apps now, not one?** A React SPA has no server. Every piece of logic that must stay off the client — Gemini calls, Supabase service-role writes, rate limiting, Turnstile verification — needs an actual backend. `apps/api` (Hono on Cloudflare Workers) is that backend: lightweight, edge-deployed, and free-tier friendly for **I/O-bound** work (DB reads/writes, calling Gemini). CPU-**bound** work (ONNX batch inference across every region) is deliberately kept *out* of the Worker and run instead as scheduled GitHub Actions jobs talking directly to Supabase — see ADR-002 and ADR-007.
+
+---
+
+## 2. Architectural Decision Records (Summary)
+
+| ADR | Decision | Rationale |
+|---|---|---|
+| ADR-001 | Two-app split: `apps/web` (React SPA) + `apps/api` (Hono/Workers) | React has no backend of its own; secret-touching logic needs a real server. Splitting keeps the frontend a pure static bundle (cheap, cacheable, CDN-friendly) and the backend a minimal, auditable surface |
+| ADR-002 | **Batch inference (Python, GitHub Actions), not per-request edge inference** | Cloudflare Workers free tier CPU-time cap (~10ms **compute**, not I/O-wait) can't reliably host WASM ONNX inference across many regions per request. Real design: a scheduled GitHub Actions job (`ml/serving/predict.py`, standard Python + `onnxruntime`) computes `risk_predictions` on a cron, writing directly to Supabase. Client-side ONNX inference (`onnxruntime-web`) ships inside the PWA for **offline, on-device** personal re-scoring — this is where "edge/0-latency AI" honestly lives |
+| ADR-003 | PostGIS over generic lat/lng columns | Native `ST_DWithin`, GiST indexing, and polygon containment needed for region + proximity queries |
+| ADR-004 | Deterministic rule engine for symptom triage; LLM only structures/paraphrases | No LLM hallucination in a health-safety-critical path |
+| ADR-005 | Anonymous + authenticated breeding reports allowed, gated by Turnstile + rate limit, not by login wall | Maximizes citizen reporting volume; abuse controlled at network layer, not identity layer |
+| ADR-006 | Materialized view `region_risk_summary` for map reads | Avoids recomputing joins/spatial aggregation on every map pan/zoom |
+| ADR-007 | **GitHub Actions `schedule` cron replaces Upstash QStash** for all background jobs (weather ingest, batch predict, news scan) | GH Actions is free, has no CPU-time ceiling relevant here, runs real Node/Python runtimes, and needs zero extra infra account. Upstash Redis is retained, but scoped strictly to **rate limiting** (a genuinely edge-appropriate KV counter used inside `apps/api` request handling) |
+| ADR-008 | **No SSR** — `apps/web` is a pure client-rendered SPA | React (not Next.js) has no built-in server rendering story worth adopting here. Trade-off accepted: the public risk map is not search-engine-crawlable at launch. If SEO becomes a priority, revisit via a dedicated ADR (e.g., prerendering just the landing route) — do not silently bolt on SSR |
+| ADR-009 | Auth = Supabase Auth (client SDK) + local JWT verification in the Worker | Supabase issues HS256 JWTs; `apps/api` verifies them locally against `SUPABASE_JWT_SECRET` (via `jose`) instead of round-tripping to Supabase Auth on every request — faster, still fully server-side |
+| ADR-010 | Realtime resource ticker uses **Supabase Realtime** directly from the browser (not via `apps/api`) | `blood_inventory`/`hospitals` are public-read (RLS-gated), so subscribing directly with the anon key over `postgres_changes` is safe and removes an unnecessary hop |
+
+New decisions get a new file in `docs/adr/`, numbered sequentially, never edited retroactively (superseded ADRs are marked, not deleted).
+
+---
+
+## 3. System Architecture
+
+```mermaid
+flowchart LR
+    subgraph Browser [apps/web — React 18 + Vite PWA, static, Cloudflare Pages]
+        MAP[Risk Map - Leaflet]
+        SYM[Symptom Checker UI]
+        REP[Breeding Report Form]
+        RES[Resource Ticker]
+        SW[Service Worker: Workbox + cached ONNX model]
+        RT[Supabase Realtime subscription]
+    end
+
+    subgraph API [apps/api — Hono on Cloudflare Workers]
+        MW[middleware: CORS, security headers, auth, turnstile, rate-limit]
+        API_READ[Read routes: risk-map, resources]
+        API_WRITE[Write routes: report, blood-update, alert-subscribe]
+        API_LLM[Gemini proxy: symptom-check, report-validate]
+    end
+
+    subgraph Jobs [GitHub Actions — scheduled workflows]
+        JOB_WEATHER[weather-ingest.ts - Node]
+        JOB_PREDICT[predict.py - Python + onnxruntime]
+        JOB_NEWS[news-scan.ts - Node]
+    end
+
+    subgraph Data [Supabase Postgres + PostGIS]
+        REGIONS[(regions)]
+        WEATHER[(weather_observations)]
+        CASES[(dengue_cases)]
+        PRED[(risk_predictions)]
+        MV[[region_risk_summary MV]]
+        REPORTS[(breeding_reports)]
+        HOSP[(hospitals / blood_inventory)]
+        PUSH[(push_subscriptions)]
+    end
+
+    subgraph External
+        OWM[OpenWeatherMap API]
+        GEMINI[Google Gemini API]
+        TURNSTILE[Cloudflare Turnstile]
+        WEBPUSH[Web Push - VAPID]
+    end
+
+    MAP --> API_READ --> MV
+    REP --> MW --> API_WRITE --> REPORTS
+    SYM --> API_LLM --> GEMINI
+    RES --> RT --> HOSP
+    RES -. initial load .-> API_READ --> HOSP
+    JOB_WEATHER --> OWM
+    JOB_WEATHER --> WEATHER
+    JOB_PREDICT --> PRED --> MV
+    JOB_PREDICT --> PUSH --> WEBPUSH
+    JOB_NEWS --> GEMINI
+    JOB_NEWS --> Data
+    SW -. periodic sync .-> API_READ
+    MW --> TURNSTILE
+```
+
+**Data flow, plain English:**
+1. Every 3h, `cron-weather-ingest.yml` runs `scripts/jobs/weather-ingest.ts` (Node), pulls OpenWeatherMap data per region, writes to `weather_observations` using the Supabase service-role key (stored as a GitHub Actions secret — never in any deployed app).
+2. Every 24h, `cron-batch-predict.yml` runs `ml/serving/predict.py`: loads the checksum-verified `.onnx` model, builds feature vectors per region straight from Supabase, runs `onnxruntime` (Python) inference, writes `risk_predictions`, refreshes `region_risk_summary`, and — for any region crossing into `high`/`severe` — sends Web Push notifications to matching `alert_subscriptions`/`push_subscriptions` via VAPID.
+3. The map, dashboard, and resource pages (`apps/web`) read only from the materialized view / indexed tables through `apps/api` — fast, cacheable, cheap.
+4. Citizen writes (breeding report, blood update) go through `apps/api`: Turnstile + rate limiter + Gemini-assisted validation before landing in Postgres, subject to RLS.
+5. The **blood/hospital ticker** subscribes directly to Supabase Realtime from the browser for live updates (ADR-010) — no polling, no extra Worker load.
+6. The PWA service worker caches the last-synced regional feature snapshot + the ONNX model so a returning user gets an **offline, on-device** personal risk estimate — this is the genuine "edge AI" experience, running entirely in the user's browser via WASM.
+
+---
+
+## 4. Data Layer — PostGIS Schema
+
+```sql
+create extension if not exists postgis;
+create extension if not exists pgcrypto;
+
+-- Administrative boundaries
+create table regions (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,
+  name text not null,
+  admin_level smallint not null,        -- 1=state 2=district 3=ward
+  population integer,
+  geom geometry(MultiPolygon, 4326) not null
+);
+create index idx_regions_geom on regions using gist (geom);
+
+-- Weather ingestion (append-only)
+create table weather_observations (
+  id bigint generated always as identity primary key,
+  region_id uuid references regions(id) on delete cascade,
+  observed_at timestamptz not null,
+  temp_mean_c numeric(4,1),
+  temp_min_c numeric(4,1),
+  temp_max_c numeric(4,1),
+  humidity_pct numeric(4,1),
+  precipitation_mm numeric(6,1),
+  source text default 'openweathermap',
+  raw_payload jsonb
+);
+create index idx_weather_region_time on weather_observations (region_id, observed_at desc);
+
+-- Historical epidemiological ground truth (weekly aggregates)
+create table dengue_cases (
+  id bigint generated always as identity primary key,
+  region_id uuid references regions(id) on delete cascade,
+  reported_week date not null,          -- ISO week start (Monday)
+  case_count integer not null check (case_count >= 0),
+  source text
+);
+create unique index uq_cases_region_week on dengue_cases (region_id, reported_week);
+
+-- Model output (2 rows per region per run: horizon=2, horizon=4)
+create table risk_predictions (
+  id bigint generated always as identity primary key,
+  region_id uuid references regions(id) on delete cascade,
+  prediction_date date not null,
+  horizon_weeks smallint not null check (horizon_weeks in (2, 4)),
+  risk_score numeric(4,3) not null check (risk_score between 0 and 1),
+  risk_level text generated always as (
+    case when risk_score < 0.25 then 'low'
+         when risk_score < 0.50 then 'moderate'
+         when risk_score < 0.75 then 'high'
+         else 'severe' end
+  ) stored,
+  top_factors jsonb,                    -- SHAP top-3 contributing features, for explainability UI
+  model_version text not null,
+  generated_at timestamptz default now(),
+  unique (region_id, horizon_weeks, prediction_date)
+);
+create index idx_predictions_region_date on risk_predictions (region_id, prediction_date desc);
+
+-- Read-optimized surface for the map (refreshed by the batch-predict job, not on request path)
+create materialized view region_risk_summary as
+  select distinct on (r.id, p.horizon_weeks)
+         r.id as region_id, r.name, r.geom,
+         p.risk_score, p.risk_level, p.horizon_weeks, p.generated_at
+  from regions r
+  join risk_predictions p on p.region_id = r.id
+  order by r.id, p.horizon_weeks, p.prediction_date desc;
+create unique index uq_summary_region_horizon on region_risk_summary (region_id, horizon_weeks);
+create index idx_summary_geom on region_risk_summary using gist (geom);
+-- refreshed via: refresh materialized view concurrently region_risk_summary;
+
+-- Citizen-submitted breeding site reports
+create table breeding_reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid references auth.users(id),
+  geom geometry(Point, 4326) not null,
+  description text,
+  photo_url text,
+  ai_validation jsonb,                  -- Gemini structured-output payload
+  status text not null default 'pending'
+    check (status in ('pending','verified','rejected','resolved')),
+  verified_by uuid references auth.users(id),
+  municipal_ref_id text,
+  created_at timestamptz default now()
+);
+create index idx_breeding_geom on breeding_reports using gist (geom);
+create index idx_breeding_pending on breeding_reports (status) where status = 'pending';
+
+-- Medical resources
+create table hospitals (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  geom geometry(Point, 4326) not null,
+  address text,
+  phone text,
+  verified boolean default false,
+  updated_at timestamptz default now()
+);
+create index idx_hospitals_geom on hospitals using gist (geom);
+
+create type blood_group as enum ('A+','A-','B+','B-','AB+','AB-','O+','O-');
+
+create table blood_inventory (
+  id bigint generated always as identity primary key,
+  hospital_id uuid references hospitals(id) on delete cascade,
+  blood_group blood_group not null,
+  units_available integer not null default 0 check (units_available >= 0),
+  platelet_units integer default 0 check (platelet_units >= 0),
+  updated_by uuid references auth.users(id),
+  updated_at timestamptz default now(),
+  unique (hospital_id, blood_group)
+);
+
+create table verified_hospital_staff (
+  user_id uuid references auth.users(id),
+  hospital_id uuid references hospitals(id),
+  primary key (user_id, hospital_id)
+);
+
+-- Proximity alert subscriptions (geofence definition)
+create table alert_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  geom geometry(Point, 4326) not null,
+  radius_m integer not null default 2000 check (radius_m between 100 and 20000),
+  active boolean default true,
+  created_at timestamptz default now()
+);
+create index idx_alerts_geom on alert_subscriptions using gist (geom);
+
+-- Web Push delivery targets (one browser subscription per device)
+create table push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth_key text not null,
+  created_at timestamptz default now()
+);
+
+-- News aggregator agent output
+create table news_items (
+  id bigint generated always as identity primary key,
+  source_url text unique not null,
+  title text,
+  published_at timestamptz,
+  region_guess uuid references regions(id),
+  ai_confidence numeric(3,2),
+  flagged boolean default false,
+  reviewed boolean default false,
+  created_at timestamptz default now()
+);
+```
+
+### 4.1 Row Level Security (representative policies)
+
+| Table | Policy | Rule |
+|---|---|---|
+| `breeding_reports` | insert | any role (incl. `anon`) — abuse handled by rate-limit + Turnstile in `apps/api`, not RLS |
+| `breeding_reports` | select | `status = 'verified'` OR `reporter_id = auth.uid()` |
+| `breeding_reports` | update | only `role() in ('moderator','admin')` |
+| `blood_inventory` | select | public (`anon`) — required for direct Realtime subscription (ADR-010) |
+| `blood_inventory` | update | `auth.uid() in (select user_id from verified_hospital_staff where hospital_id = blood_inventory.hospital_id)` |
+| `alert_subscriptions`, `push_subscriptions` | all | `user_id = auth.uid()` only |
+| `risk_predictions`, `hospitals` (select) | select | public (`anon`) |
+
+Full policy SQL lives in `packages/db/supabase/migrations/`. RLS is **on** for every table by default; a table without RLS enabled must have an ADR justifying it.
+
+### 4.2 Indexing & Query Discipline
+
+- Every geometry column: **GiST index**, non-negotiable.
+- Every "latest record per entity" query: composite index `(entity_id, timestamp desc)`.
+- Every hot read path for the UI: served from a materialized view or covering index, never a live `ST_DWithin` join against raw tables on the request path.
+- Statement timeout: `5s` enforced at the Supabase connection role level to prevent runaway spatial queries from starving the pool.
+
+---
+
+## 5. AI / ML Architecture
+
+### 5.1 Feature Specification
+
+| Feature | Definition | Window |
+|---|---|---|
+| `temp_mean_roll` | rolling mean of `temp_mean_c` | 7 / 14 / 28 day |
+| `temp_min_roll` | rolling mean of `temp_min_c` | 14 day |
+| `humidity_roll` | rolling mean of `humidity_pct` | 14 day |
+| `precip_cum` | cumulative `precipitation_mm` | 14 day |
+| `case_lag_1/2/3` | `case_count` at t-1, t-2, t-3 weeks | weekly |
+| `favorable_breeding_flag` | boolean: `temp_mean_roll ≥ 27 AND temp_min_roll ≥ 22 AND humidity_roll ≥ 80` | derived |
+| `seasonality_sin/cos` | sin/cos encoding of ISO week-of-year | static |
+| `population_density` | region population / area | static |
+
+### 5.2 Model
+
+- **Algorithm:** LightGBM, two independent binary classifiers — `model_h2` (2-week horizon) and `model_h4` (4-week horizon). Target = "≥30% week-over-week case surge" (threshold configurable in `ml/training/config.py`).
+- **Validation:** walk-forward (expanding window) time-series CV — never randomly shuffled, to avoid leakage across time.
+- **Acceptance gate (CI-enforced before promoting a model):** recall ≥ **0.85**, precision ≥ **0.60** on held-out window. Missing an outbreak is costlier than a false alarm.
+- **Explainability:** SHAP values computed at inference time; top 3 contributing features stored in `risk_predictions.top_factors` and rendered in the UI ("high risk mainly due to: 14-day humidity 86%, rising case trend, favorable breeding temperature window").
+- **Export:** `skl2onnx`/`onnxmltools` → ONNX opset 17. Model artifact versioned as `model_v{semver}.onnx`, target size budget **< 2 MB** (quantized if needed) so it can ship inside the PWA's offline cache.
+- **Retrain cadence:** monthly, manually triggered CI job (`ml/training/train.py`) — never auto-promoted; a human reviews the model card diff before promotion.
+
+### 5.3 Inference — The Honest Architecture (ADR-002)
+
+Two distinct inference paths, serving two distinct purposes. Do not conflate them:
+
+| Path | Where it runs | Cadence | Purpose |
+|---|---|---|---|
+| **Batch (source of truth)** | `ml/serving/predict.py`, plain Python + `onnxruntime`, executed inside a GitHub Actions runner | Every 24h via GH Actions `schedule` | Populates `risk_predictions` for every region → powers the map, dashboards, alerts. This is what "2–4 week early warning" actually means operationally. No Cloudflare CPU-time constraint applies here at all. |
+| **On-device (bonus UX)** | Browser, `onnxruntime-web` (WASM), inside the installed `apps/web` PWA | On-demand, fully offline | Lets a user re-score *their own last-synced local feature snapshot* instantly with zero network round-trip. This is where "0ms cold start / edge AI" is a true statement, because compute happens on the user's device, not a shared Worker with a CPU-time ceiling. |
+
+Both paths load the **same** checksum-pinned `.onnx` artifact — `ml/serving/predict.py` via the Python `onnxruntime` package, `apps/web` via `packages/ml-inference`'s `onnxruntime-web` wrapper. There is exactly one model file, versioned once, consumed twice.
+
+If a future paid Cloudflare plan removes the CPU-time constraint, per-request Worker inference can be revisited — track as `docs/adr/ADR-002-followup.md`, do not silently change behavior.
+
+### 5.4 LLM Guardrails (Gemini)
+
+- **Symptom Checker:** LLM is *never* the decision-maker. `apps/api`'s `/api/symptom-check` route calls Gemini only to map free-text user input → structured checklist (`{ fever: bool, retroOrbitalPain: bool, ... }`) via a `responseSchema`-constrained call. The deterministic WHO-warning-signs rule engine (pure TypeScript in `packages/security`, unit-testable, ships to both `apps/api` for the authoritative check and — as a fallback-only copy — bundled into `apps/web` for the offline case) makes the actual triage call.
+- **Breeding Report Validator:** classifies free-text description into `{ isPlausible: bool, category: enum, spamLikelihood: number }`. Rejects/flags if `spamLikelihood > 0.7`.
+- **News Aggregator:** `scripts/jobs/news-scan.ts` treats scraped article text strictly as *data*, never as instructions. System prompt is fixed and never interpolates raw scraped content into a role other than a clearly delimited `<article>` data block. Output is validated against a zod schema before persistence; anything that fails schema validation is discarded, not retried with the same input.
+- **Prompt-injection defenses (all Gemini calls, wherever they originate):**
+  - Fixed system instruction, never user-modifiable.
+  - `responseSchema` (structured output) enforced — free-form text responses are rejected.
+  - Input length caps (symptom text ≤ 500 chars, report description ≤ 1000 chars).
+  - Strip HTML/markdown/control characters before sending to the model.
+  - Output re-validated with zod on the server (`apps/api` / GH Action script) before it ever reaches the client or the database.
+  - Daily spend/quota guard (see §7.3) with deterministic fallback if exceeded.
+
+**Deterministic triage rule (WHO warning signs — implemented as plain TypeScript, unit tested):**
+
+```
+IF any severe warning sign present
+   (severe abdominal pain, persistent vomiting, mucosal bleeding,
+    lethargy/restlessness, liver enlargement >2cm, clinical fluid accumulation)
+→ "Seek emergency care immediately"
+
+ELSE IF fever + 2 of (nausea/vomiting, rash, aches/pains, positive tourniquet test, leukopenia)
+→ "Probable dengue — consult a healthcare provider within 24h"
+
+ELSE
+→ "Monitor symptoms; hydrate; seek care if condition worsens"
+```
+
+This logic never calls an LLM and must have 100% deterministic, reviewable branches — it is the one place where "no AI" is a deliberate safety feature, not a gap.
+
+---
+
+## 6. API Surface (`apps/api`, Hono on Cloudflare Workers)
+
+All routes mounted in `apps/api/src/index.ts`. Every request passes through `middleware/security-headers.ts`, `middleware/cors.ts` (allow-list of `apps/web`'s production + preview origins only), then route-specific middleware below.
+
+| Method & Path | Auth | Middleware Chain | Rate Limit | Purpose |
+|---|---|---|---|---|
+| `GET /api/risk-map?bbox=` | public | cors, headers | 60/min/IP | Reads `region_risk_summary`, `Cache-Control: s-maxage=300, stale-while-revalidate=600` |
+| `GET /api/risk/:regionId` | public | cors, headers | 60/min/IP | Region drill-down incl. `top_factors` |
+| `GET /api/resources/hospitals?bbox=` | public | cors, headers | 60/min/IP | PostGIS bbox query (initial paint; live updates via Realtime, ADR-010) |
+| `GET /api/resources/blood?bloodGroup=&lat=&lng=&radius=` | public | cors, headers | 60/min/IP | `ST_DWithin` nearest-hospital + stock query |
+| `PATCH /api/resources/blood/:id` | verified hospital-staff/volunteer | cors, headers, auth (JWT), rate-limit | 10/min/user | Stock update, RLS-enforced, double-checked in route handler |
+| `POST /api/reports/breeding-site` | anon or authenticated | cors, headers, turnstile, rate-limit, gemini-validate | 5/min/IP, 20/day/IP | Turnstile required, Gemini-validated, geom insert |
+| `PATCH /api/reports/breeding-site/:id/verify` | moderator/admin | cors, headers, auth (JWT + role check) | 20/min/user | Verification workflow |
+| `POST /api/symptom-check` | public | cors, headers, rate-limit, quota-guard | 10/min/IP, 50/day/IP | Gemini structuring → deterministic rule engine, no PII persisted |
+| `POST /api/alerts/subscribe` | authenticated | cors, headers, auth (JWT), rate-limit | 5/min/user | Upsert `alert_subscriptions` |
+| `POST /api/alerts/push-subscription` | authenticated | cors, headers, auth (JWT) | 5/min/user | Registers browser Push subscription (`push_subscriptions`) |
+
+**No `/api/jobs/*` endpoints exist.** Background jobs (weather ingest, batch predict, news scan) run as GitHub Actions workflows connecting **directly** to Supabase with the service-role key stored as a GH secret — never exposed as an invokable HTTP endpoint, removing an entire class of forged-trigger attack (ADR-007).
+
+**Contract discipline:** every request/response body has a zod schema in `packages/types`, imported by both the Hono route handler (server-side parse, reject on mismatch with generic 400) and the `apps/web` fetch wrapper (`lib/apiClient.ts`). No `any` on the wire.
+
+---
+
+## 7. Security Architecture
+
+### 7.1 Secrets & Environment Matrix
+
+| Variable | Exposure | Used by |
+|---|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | server-only | `apps/api`, GH Actions job scripts |
+| `SUPABASE_JWT_SECRET` | server-only | `apps/api` (local JWT verification, ADR-009) |
+| `VITE_PUBLIC_SUPABASE_URL` / `VITE_PUBLIC_SUPABASE_ANON_KEY` | client (`apps/web`) | citizen reads, Realtime subscriptions — real gate is RLS, not secrecy |
+| `GEMINI_API_KEY` | server-only | `apps/api` routes, `scripts/jobs/news-scan.ts` |
+| `OPENWEATHERMAP_API_KEY` | server-only | `scripts/jobs/weather-ingest.ts` |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | server-only | `apps/api` rate limiter |
+| `TURNSTILE_SECRET_KEY` | server-only | `apps/api` (server-side verification call) |
+| `VITE_PUBLIC_TURNSTILE_SITE_KEY` | client | widget render only |
+| `VITE_PUBLIC_MAPBOX_TOKEN` | client | scoped to domain-restricted, read-only Mapbox token |
+| `VAPID_PUBLIC_KEY` | client (`apps/web`) | Push subscription registration |
+| `VAPID_PRIVATE_KEY` | server-only | `ml/serving/predict.py` (sends push notifications), never in any deployed app |
+
+Rule: any variable without the `VITE_PUBLIC_` prefix must never be imported into `apps/web` source — enforced via an ESLint boundary rule (`packages/config/eslint-config`) that fails the build if a non-prefixed env access appears anywhere under `apps/web/src`. Vite itself also refuses to inline non-`VITE_`-prefixed vars into the client bundle by default — this is a defense-in-depth double lock, not a single point of failure.
+
+### 7.2 Threat Model (STRIDE, by feature)
+
+**Risk Map / Resource Reads (public, unauthenticated)**
+- *DoS:* unbounded bbox queries → clamp max bbox area server-side in `apps/api`; rely on MV + edge cache, not live spatial joins.
+- *Info disclosure:* exact hospital blood stock could be scraped in bulk → rate limit + no bulk export endpoint; Realtime channel only exposes rows already covered by public RLS `select`.
+
+**Breeding Report Submission (anonymous-friendly write)**
+- *Spoofing/Spam:* bot floods → Turnstile mandatory + IP rate limit + Gemini spam-likelihood filter, all enforced in `apps/api` (unreachable directly from a static frontend bundle).
+- *Tampering:* geom injected outside valid coordinate bounds → server-side `ST_IsValid` + lat/lng range check before insert.
+- *Repudiation:* need audit trail → `created_at`, `reporter_id` (nullable), immutable insert (no client-side update/delete; RLS forbids it).
+- *Elevation of privilege:* citizen trying to self-verify → `status` update path restricted to `moderator/admin` via RLS **and** re-checked in the Hono route handler (defense in depth).
+
+**Blood Inventory Update (privileged write)**
+- *Spoofing:* impersonating hospital staff → `verified_hospital_staff` join table, populated only by admin, checked in RLS *and* in `apps/api` middleware (defense in depth).
+- *Tampering:* wildly implausible values (e.g., 99999 units) → `check` constraints + sane upper bound validation in the zod schema.
+
+**Symptom Checker (LLM-touching)**
+- *Prompt injection:* user tries `"ignore previous instructions..."` → fixed system prompt, schema-constrained output, input sanitization (§5.4), all server-side in `apps/api`.
+- *Info disclosure:* no PII sent to Gemini, no conversation persisted beyond the request lifecycle.
+- *DoS/cost abuse:* Gemini free-tier quota drain → per-IP + global daily counter circuit breaker (§7.3).
+
+**News Aggregator Agent**
+- *Tampering via untrusted content:* malicious article text attempting to manipulate the LLM into fabricating outbreak data → content always wrapped as inert `<article>` data, never role-elevated; output requires human `reviewed = true` before it can influence anything public-facing.
+
+**Batch Inference Job**
+- *Tampering:* a compromised dependency altering the ONNX artifact → checksum-pinned model file, version recorded in `risk_predictions.model_version`; `predict.py` verifies SHA256 against `ml/training/MODEL_MANIFEST.json` before running, aborts the job if mismatched.
+- *Secret exposure:* `VAPID_PRIVATE_KEY`/`SUPABASE_SERVICE_ROLE_KEY` only ever exist as GitHub Actions encrypted secrets, injected as ephemeral env vars into the runner — never logged (explicit `::add-mask::` on any accidental echo).
+
+**Cross-Origin Surface (new with the two-app split)**
+- *CORS misconfiguration:* an overly permissive `Access-Control-Allow-Origin` would let any site call the API with a user's cookies/token → `apps/api`'s CORS middleware allow-lists exact production + PR-preview Cloudflare Pages origins only, never `*`, never a regex wildcard on write routes.
+
+### 7.3 Rate Limiting & Quota Guards (Upstash sliding window, inside `apps/api`)
+
+| Guard | Limit | Enforcement point |
+|---|---|---|
+| Public read routes | 60 req/min/IP | `apps/api` middleware |
+| Breeding report submit | 5/min/IP, 20/day/IP | `apps/api` route middleware |
+| Blood inventory update | 10/min/authenticated user | `apps/api` route middleware |
+| Symptom checker | 10/min/IP, 50/day/IP | `apps/api` route middleware |
+| Gemini global daily quota guard | 1500 req/day (shared counter) | `packages/security/quotaGuard.ts` — trips a circuit breaker; symptom checker falls back to the pure deterministic tree with an "AI assist temporarily unavailable" notice; report submission still accepted, flagged for manual review instead of AI-validated |
+
+### 7.4 Transport & Header Hardening
+
+**`apps/web` (Cloudflare Pages, static — enforced via `public/_headers`):**
+- `Content-Security-Policy`: `default-src 'self'; connect-src 'self' https://<api-domain> https://<supabase-project>.supabase.co https://api.mapbox.com; script-src 'self'; style-src 'self' 'unsafe-inline';` — no Gemini domain in client CSP at all, because the browser never talks to Gemini directly.
+- `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`.
+- `Permissions-Policy`: `geolocation=(self)`, `notifications=(self)` — scoped only to routes that need them.
+
+**`apps/api` (Hono middleware, `middleware/security-headers.ts`):**
+- Same header set applied to every JSON response; strict `Access-Control-Allow-Origin` allow-list (§7.2); no `Access-Control-Allow-Credentials: true` unless a route explicitly requires cookie auth (it doesn't — Bearer JWT is used).
+
+**CI-wide:**
+- CodeQL SAST on every PR + weekly scheduled scan (`.github/workflows/codeql.yml`), covering `apps/web`, `apps/api`, and Python under `ml/`.
+- Dependabot for `npm` and `pip` ecosystems, weekly.
+
+---
+
+## 8. Performance & Scalability Strategy
+
+| Layer | Strategy |
+|---|---|
+| Map/resource reads | Served from `region_risk_summary` MV + covering GiST index via `apps/api`; edge-cached `s-maxage=300, stale-while-revalidate=600` |
+| DB connections | Supabase **Supavisor** transaction-mode pooler for the Worker; never a direct long-lived connection from a stateless invocation |
+| DB query safety | `statement_timeout = 5s` at the API role level; every spatial query bounded by a max bbox area / max radius (`ALERT_PROXIMITY_RADIUS_DEFAULT_M` ceiling 20,000m) |
+| Frontend bundle | React Router lazy routes (`React.lazy` + `Suspense`) per page; Leaflet/Mapbox chunk split out and loaded only on the map route; TanStack Query for request de-duplication/caching; main shell bundle budget **< 180KB gzip** |
+| ONNX/WASM | Loaded lazily only when the user opens the "on-device risk" feature; never in the critical render path; cached by the service worker after first load |
+| PWA caching (Workbox via `vite-plugin-pwa`) | `NetworkFirst` for `apps/api` data (fallback to cache when offline), `CacheFirst` for map tiles (7-day expiry, max 200 entries), `StaleWhileRevalidate` for static assets/fonts |
+| Realtime | Single Supabase Realtime channel per open ticker view, cleaned up on unmount — never left subscribed across route changes |
+| Targets | Lighthouse Performance/PWA/Best-Practices/SEO ≥ 90 (SEO score accepted as capped given ADR-008, tracked separately); LCP < 2.5s on simulated 4G; CLS < 0.1; TTFB < 200ms on cached `apps/api` routes |
+| Scale-out path (documented, not built yet) | Supabase compute tier upgrade + read replicas if `weather_observations`/`dengue_cases` exceed ~10M rows; partition by year at that point (future ADR, not built pre-emptively — YAGNI) |
+
+---
+
+## 9. Engineering Standards
+
+- **Types:** every domain gets exactly one file in `packages/types/src/` (`domain.ts`, `api.ts`, `ml.ts`, `security.ts`), re-exported from a single `index.ts` barrel. No interface is ever redefined in either app.
+- **Optional chaining checklist** (enforced by review, not just lint): Supabase `.data`/`.error` results, `fetch()` response JSON, Gemini response parsing, `navigator.geolocation`/`navigator.serviceWorker`/Push API callbacks, `localStorage.getItem`, URL/query param parsing, third-party map event payloads, React Router `useParams()`/`useSearchParams()` values.
+- **Error handling pattern:** every `apps/api` route wraps logic in a shared `withErrorBoundary()` helper (`packages/logger`) that logs the full error server-side with a correlation ID and returns a generic, user-safe message; `apps/web` wraps all data-fetching in a shared error boundary + toast that never renders a raw error/stack trace.
+- **SOLID:** one responsibility per module — e.g., `packages/geo` never imports a Supabase client directly, it only builds/returns query fragments; `packages/security` never knows about domain models, only generic rate-limit keys and validators.
+- **Dead code:** no unused imports/vars/functions may land in `main` — CI lint step (`eslint --max-warnings=0`) is a hard gate, not advisory.
+- **Match existing patterns** when modifying a file — do not introduce a second state-management or fetching convention into an area that already has one (e.g., don't mix `useEffect`-based fetching into a codebase standardized on TanStack Query).
+
+---
+
+## 10. Testing Protocol (Manual, No Scripts — Frontend)
+
+Every feature PR must include all three passes, documented inline in the PR description:
+
+**Pass 1 — Assume not implemented:** Verify the UI degrades gracefully (loading skeleton, empty state, no console errors) when the feature/data is absent. Confirms no hard dependency crashes the app.
+
+**Pass 2 — Assume implemented correctly:** Walk the full happy path with real data (e.g., submit a valid breeding report with GPS, confirm it appears as `pending`, confirm map pin, confirm rate limit resets after window).
+
+**Pass 3 — Assume full of bugs/security flaws:** Actively attack it — malformed input, oversized payloads, rapid-fire submissions past rate limits, XSS strings in text fields, invalid/out-of-range coordinates, expired/forged Turnstile token, direct API call bypassing the UI with curl/Postman, cross-origin request from an unlisted domain (confirm CORS rejects it).
+
+*Worked example — Breeding Report Form:*
+1. Load form with network throttled/offline → form should show a clear offline notice, not crash.
+2. Submit a valid report with geolocation granted → appears in "My Reports" as pending, moderator sees it in queue.
+3. Submit 10 reports in 30 seconds from the same IP → 6th onward rejected with generic "Too many requests" toast; submit `<script>alert(1)</script>` as description → stored as inert text, never executed; call `POST https://<api-domain>/api/reports/breeding-site` directly with `lat: 999` → rejected 400 by zod schema before hitting the DB; call it from an unregistered `Origin` header → rejected by CORS before it reaches the handler.
+
+---
+
+## 11. CI/CD Pipeline
+
+`turbo.json` pipeline: `lint → typecheck → test (vitest, packages + apps/api logic) → build (apps/web, apps/api)`. GitHub Actions (`ci.yml`) runs this matrix on every PR; `codeql.yml` runs SAST on every PR and weekly on schedule; `deploy-web.yml` builds `apps/web` (Vite) and publishes the static output to Cloudflare Pages (preview per PR, production on `main` merge); `deploy-api.yml` runs `wrangler deploy` for `apps/api` on `main` merge.
+
+CI must fail the build on: any ESLint error/warning, any TypeScript error, any unused export flagged by `ts-prune`, any CodeQL high/critical finding, model checksum mismatch (for ML artifact PRs), and any client bundle referencing a non-`VITE_PUBLIC_`-prefixed env var.
+
+---
+
+## 12. Documentation Standard
+
+Every feature doc in `docs/` follows this template — no exceptions:
+
+```md
+## <Feature Name>
+**Gist:** 2–3 sentences, understandable without reading code.
+**Technical Detail:** data flow, tables touched, external calls, edge cases handled.
+**Critical Constants:** table of every static threshold/limit used, with file location.
+**Security Considerations:** threats enumerated + mitigation (mirror §7.2 for that feature).
+**Manual Test Log:** last 3-pass test date + result summary.
+```
+
+Docs are updated **in the same PR** as the code change — a PR touching `blood_inventory` logic without touching `docs/data-schema/postgis-schema.md` (if schema changed) or the feature doc is rejected in review.
+
+---
+
+## 13. Development Workflow — Vertical Slice Order
+
+Waterfall governs the *project timeline* (mapped below to the original 10-week plan); execution *within* each implementation phase is strictly vertical-slice, in this order:
+
+1. **Foundation slice:** `regions` + `weather_observations` schema → `cron-weather-ingest.yml` → live weather dashboard (read-only `apps/web` page hitting `apps/api`). Proves the pipeline end-to-end before anything else depends on it.
+2. **Risk map (read path):** seed historical `dengue_cases`, static risk map UI wired to a stubbed `risk_predictions` table.
+3. **ML pipeline:** offline training → ONNX export → `cron-batch-predict.yml` → real risk scores flow into the map from slice 2.
+4. **Symptom checker:** deterministic rule engine first (fully testable, no LLM), then Gemini structuring layer on top via `apps/api`.
+5. **Breeding site reporting:** write path, Turnstile, rate limiting, Gemini validation, moderator verification UI.
+6. **Hospital/blood resource ticker:** hospital seed data, verified-staff update flow via `apps/api`, public ticker UI wired to Supabase Realtime (ADR-010).
+7. **Geospatial alerts:** subscription CRUD, `ST_DWithin` proximity check in the batch job, Web Push delivery via `push_subscriptions` + VAPID.
+8. **News aggregator agent:** scraper + Gemini classification + moderator review queue.
+9. **Security hardening pass:** re-run the STRIDE table (§7.2) against the *actual* shipped code, not the plan, close gaps.
+10. **On-device ONNX inference (PWA bonus feature):** ship last, since it depends on a stable, versioned model artifact from slice 3.
+
+**Git conventions:** branch `feat/<slice-name>`, Conventional Commits (`feat:`, `fix:`, `docs:`, `sec:`), PR template requires: linked slice number, updated docs checklist, 3-pass manual test log, and a filled-in "security vectors considered" section for any write-path change.
+
+**Original 10-week phase mapping** (unchanged from the proposal): Weeks 1–2 requirements/data, Weeks 3–4 schema+model+wireframes, Weeks 5–7 slices 1–7 above, Week 8 slice 9 (hardening), Week 9 deployment, Week 10 slice 8/10 polish + handover.
+
+---
+
+## 14. Critical Constants Registry (Master Table)
+
+*Single source of truth for every static threshold. If you hardcode a number anywhere else, it must appear here first.*
+
+| Constant | Value | Defined in | Purpose |
+|---|---|---|---|
+| `DENGUE_FAVORABLE_TEMP_MEAN_C` | 27 | `ml/training/config.py`, `packages/types/ml.ts` | breeding-favorability feature flag |
+| `DENGUE_FAVORABLE_TEMP_MIN_C` | 22 | same | breeding-favorability feature flag |
+| `DENGUE_FAVORABLE_HUMIDITY_PCT` | 80 | same | breeding-favorability feature flag |
+| `PREDICTION_HORIZONS_WEEKS` | [2, 4] | `ml/training/config.py` | forecast horizons |
+| `SURGE_TARGET_THRESHOLD` | +30% WoW case growth | `ml/training/config.py` | classification label definition |
+| `RISK_LEVEL_BANDS` | low < .25, moderate < .50, high < .75, severe ≥ .75 | `packages/types/ml.ts`, SQL generated column | UI color coding, alerts |
+| `MIN_RECALL_TARGET` / `MIN_PRECISION_TARGET` | 0.85 / 0.60 | `ml/evaluation/backtest.py` | model promotion gate |
+| `ONNX_MODEL_SIZE_BUDGET` | < 2 MB | `ml/training/export_onnx.py` | PWA offline cache feasibility |
+| `MODEL_RETRAIN_CADENCE` | monthly, manual promotion | `docs/ml/model-card.md` | drift mitigation |
+| `BATCH_PREDICT_CADENCE` | every 24h | `.github/workflows/cron-batch-predict.yml` | freshness of `risk_predictions` |
+| `WEATHER_INGEST_CADENCE` | every 3h | `.github/workflows/cron-weather-ingest.yml` | freshness of weather features |
+| `RISK_MAP_CACHE_TTL_S` | s-maxage=300, swr=600 | `apps/api/src/routes/risk-map.ts` | edge cache behavior |
+| `MV_REFRESH_INTERVAL` | triggered post-batch-predict | `ml/serving/predict.py` | map read freshness |
+| `BREEDING_REPORT_RATE_LIMIT` | 5/min, 20/day per IP | `packages/security` | abuse prevention |
+| `SYMPTOM_CHECK_RATE_LIMIT` | 10/min, 50/day per IP | `packages/security` | Gemini cost control |
+| `BLOOD_UPDATE_RATE_LIMIT` | 10/min per verified user | `packages/security` | write abuse prevention |
+| `GEMINI_DAILY_QUOTA_GUARD` | 1500 req/day (global) | `packages/security/quotaGuard.ts` | free-tier cost circuit breaker |
+| `ALERT_PROXIMITY_RADIUS_DEFAULT_M` | 2000 (bounds: 100–20,000) | `packages/geo`, `alert_subscriptions` check constraint | `ST_DWithin` default/ceiling |
+| `DB_STATEMENT_TIMEOUT_S` | 5 | Supabase API role config | prevents runaway spatial queries |
+| `FRONTEND_BUNDLE_BUDGET_KB` | < 180 KB gzip (shell) | `apps/web/vite.config.ts` bundle analyzer CI check | performance |
+| `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/src/middleware/cors.ts` | cross-origin write protection |
+
+---
+
+## 15. Governance Files
+
+### `AGENTS.md`
+
+```md
+# AGENTS.md — Instructions for AI Coding Agents
+
+You are working inside Avash (আভাস). The file `docs/BLUEPRINT.md` (this document)
+is the single source of truth. If your plan conflicts with it, stop and flag
+the conflict instead of proceeding.
+
+Frontend is React 18 + Vite (`apps/web`) — a static SPA, NOT Next.js. It has
+no server. Anything that must stay secret or server-side belongs in
+`apps/api` (Hono on Cloudflare Workers) or a GitHub Actions job script under
+`scripts/jobs/` or `ml/serving/`.
+
+## ALWAYS
+- Implement end-to-end (DB → apps/api → apps/web → docs → 3 manual tests) —
+  one vertical slice at a time, per §13.
+- Keep sensitive data server-side only (§7.1). Before finishing any task
+  touching secrets, grep `apps/web/src` to confirm no non-`VITE_PUBLIC_`
+  variable was referenced.
+- Use optional chaining / safe fallbacks on every external or untrusted data
+  access point (§0.4). Find every instance — do not stop at the first one.
+- Put all shared types/interfaces in `packages/types` — never redefine inline.
+- Follow SOLID; be secure-by-default; enumerate attack vectors (§7.2 template)
+  for any feature you touch, including CORS implications for cross-origin calls.
+- Update docs in the same change as the code (§12). Include: gist, technical
+  detail, critical constants table, security considerations.
+- Write generic, user-friendly error/toast messages. Log full detail
+  server-side with a correlation ID instead.
+- Run the 3 manual test passes (§10) and report the results, even though
+  there are no automated frontend test scripts.
+- Match existing patterns in the file/module you are editing.
+- Keep responses and working context lean — do not re-read files you already
+  have full context on; summarize instead of re-pasting large blocks.
+- Remove unused imports, variables, and functions before finishing a task.
+
+## NEVER
+- Expose a server-only secret to `apps/web` client code, ever.
+- Introduce a regression, vulnerability, or break an existing feature to
+  make a task "look done."
+- Modify a test (or the 3-pass manual test description) to make a broken
+  feature appear to pass.
+- Sound certain about something you have not verified against this doc or
+  the actual code.
+- Add a background job as an HTTP endpoint on `apps/api` — jobs run via
+  scheduled GitHub Actions connecting directly to Supabase (ADR-007).
+- Implement per-request ML inference inside a Cloudflare Worker as if it
+  were free of CPU-time constraints — see ADR-002.
+- Reach for SSR/Next.js patterns; this is a client-rendered SPA (ADR-008).
+
+## When modifying existing code
+Match the existing pattern in that file/module exactly, even if you'd
+personally choose differently. Raise a proposal in `docs/adr/` if you
+believe the pattern itself should change — do not silently diverge.
+
+## When securing a feature
+Fill out the STRIDE-style vector list (Spoofing, Tampering, Repudiation,
+Info Disclosure, DoS, Elevation of Privilege) for that feature before
+writing code, per §7.2's format. Add it to `docs/security/threat-model.md`.
+```
+
+### `CLAUDE.md`
+
+```md
+# CLAUDE.md — Dev Commands & Context Map
+
+## Commands
+- `pnpm install` — install workspace deps
+- `pnpm --filter web dev` — Vite dev server for the React SPA
+- `pnpm --filter api dev` — `wrangler dev` for the Hono Worker API
+- `pnpm lint` / `pnpm typecheck` / `pnpm build` — turbo pipeline across both apps, run before every commit
+- `pnpm --filter @avash/security test` (etc.) — vitest for `packages/*` logic (geo, security, ml-inference wrapper)
+- `pnpm db:migrate` — apply `packages/db/supabase/migrations`
+- `pnpm db:seed` — `scripts/seed-db.ts` (regions, sample hospitals, historical cases)
+- `python ml/training/train.py` — retrain models (requires `ml/data` populated via DVC pull)
+- `python ml/training/export_onnx.py` — export + checksum the ONNX artifact into `packages/ml-inference`
+- `python ml/serving/predict.py` — run a batch inference pass locally (same script GH Actions runs on schedule)
+- `pnpm tsx scripts/jobs/weather-ingest.ts` — run the weather ingest job locally
+
+## Where things live
+- Read the full picture: `docs/BLUEPRINT.md` (this file), then `AGENTS.md` for hard rules.
+- Types: `packages/types` only.
+- Anything secret-touching: `apps/api/src/routes/*`, or `scripts/jobs/*` / `ml/serving/*` for cron work.
+  `apps/web` never touches a secret — if you find yourself about to, stop.
+- Constants: never hardcode — check §14 of the blueprint first.
+
+## Context hygiene
+Keep working context under ~40% capacity. Summarize prior findings instead
+of re-reading whole files repeatedly. Prefer targeted greps/reads over
+loading entire directories.
+```
+
+### `SECURITY.md`
+
+```md
+# Security Policy
+
+## Reporting
+Report suspected vulnerabilities privately to the project maintainers —
+do not open a public issue for unpatched security findings.
+
+## Scope
+Covers `apps/web` (React SPA), `apps/api` (Hono/Cloudflare Workers),
+`packages/*`, GitHub Actions job scripts (`scripts/jobs/`, `ml/serving/`),
+and the Supabase schema in `packages/db`. The `ml/training` pipeline is out
+of scope for runtime security, but its output (the ONNX artifact) is
+checksum-verified before every inference run (§7.2 of `docs/BLUEPRINT.md`).
+
+## Controls in place
+- Row Level Security enabled on every Supabase table (§4.1 of the blueprint).
+- Strict backend/frontend separation: `apps/web` ships zero server secrets;
+  all privileged logic lives in `apps/api` or scheduled job scripts.
+- Rate limiting (Upstash) on every write and LLM-touching `apps/api` route.
+- Cloudflare Turnstile on all anonymous write endpoints.
+- CORS allow-list restricted to known `apps/web` origins — no wildcard.
+- CodeQL SAST on every PR + weekly scheduled scan.
+- Dependabot for npm and pip ecosystems.
+- ESLint boundary rule + Vite's default env-inlining restriction as a double
+  lock against secret leakage into the client bundle.
+- Structured-output constraints and input sanitization on all Gemini calls
+  (prompt-injection defense, §5.4).
+- Background jobs run with no public HTTP trigger surface (ADR-007).
+
+## Full threat model
+See `docs/security/threat-model.md`, kept in sync with §7.2 of the blueprint.
+```
+
+### `CONTRIBUTING.md`
+
+```md
+# Contributing
+
+1. Read `docs/BLUEPRINT.md` fully before your first PR — it is the source
+   of truth for architecture, schema, constants, and security rules.
+2. One vertical slice per PR (§13). No partial DB-only or UI-only PRs for
+   a new feature unless explicitly scoped as a foundation slice.
+3. Know which app you're in: `apps/web` (React SPA, no secrets, ever) vs
+   `apps/api` (Hono/Workers, all privileged logic) vs job scripts
+   (`scripts/jobs/`, `ml/serving/`, run by GitHub Actions on a schedule).
+4. Branch naming: `feat/<slice-name>`, `fix/<issue>`, `docs/<area>`,
+   `sec/<finding>`. Commits follow Conventional Commits.
+5. Before opening a PR: `pnpm lint && pnpm typecheck && pnpm build` must
+   pass locally for both `apps/web` and `apps/api`.
+6. PR description must include:
+   - Linked slice/section of the blueprint
+   - Updated docs (per §12 template)
+   - 3-pass manual test log (§10)
+   - Security vectors considered (§7.2 format), for any write-path or
+     auth-adjacent change
+7. Do not modify a test or a manual-test description to force a broken
+   feature to "pass."
+```

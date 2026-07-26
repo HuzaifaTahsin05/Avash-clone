@@ -1,0 +1,6 @@
+# Ignore raw data files
+*.csv
+*.parquet
+*.nc
+# DVC files are allowed
+!*.dvc

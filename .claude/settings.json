@@ -1,0 +1,4 @@
+{
+  "customInstructions": "Always refer to docs/PROJECT_PLAN.md for the ground truth of architecture.",
+  "skills": ["react", "vite", "hono", "cloudflare-workers", "postgis"]
+}

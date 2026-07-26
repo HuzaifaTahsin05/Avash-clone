@@ -1,0 +1,15 @@
+{
+  "project": "Avash",
+  "agents": [
+    {
+      "role": "frontend-dev",
+      "scope": "apps/web",
+      "guidelines": ["No SSR", "Client-only secrets"]
+    },
+    {
+      "role": "backend-dev",
+      "scope": "apps/api",
+      "guidelines": ["Hono framework", "Cloudflare Workers"]
+    }
+  ]
+}
