@@ -1,15 +1,108 @@
 {
   "project": "Avash",
+  "sourceOfTruth": "docs/PROJECT_PLAN.md",
   "agents": [
     {
       "role": "frontend-dev",
-      "scope": "apps/web",
-      "guidelines": ["No SSR", "Client-only secrets"]
+      "scope": ["apps/web/**"],
+      "mustFollow": [
+        "R1", "R2", "R3", "R4", "R6", "R10",
+        "docs/PROJECT_PLAN.md §9", "docs/PROJECT_PLAN.md §13",
+        "docs/standards/frontend.md"
+      ],
+      "forbidden": [
+        "Referencing any non-VITE_PUBLIC_ prefixed env var under apps/web/src",
+        "Adding SSR, Next.js patterns, or any server-rendering dependency",
+        "useEffect-based data fetching (TanStack Query is the only server-state mechanism)",
+        "Redefining a shared interface/DTO/zod schema instead of importing from packages/types",
+        "Rendering a raw error message or stack trace to the user"
+      ],
+      "definitionOfDone": "Feature implemented end-to-end against a real apps/api contract from packages/types; Playwright e2e spec added; docs/features/*.md updated (§12 template); three-pass manual test log completed; zero non-VITE_PUBLIC_ env references; lint/typecheck/build green."
     },
     {
       "role": "backend-dev",
-      "scope": "apps/api",
-      "guidelines": ["Hono framework", "Cloudflare Workers"]
+      "scope": ["apps/api/**"],
+      "mustFollow": [
+        "R1", "R2", "R3", "R4", "R6", "R7", "R9", "R10",
+        "docs/PROJECT_PLAN.md §6", "docs/PROJECT_PLAN.md §7",
+        "docs/standards/backend.md"
+      ],
+      "forbidden": [
+        "Adding any /api/jobs/* endpoint or any route whose only caller is a scheduler (ADR-007)",
+        "Performing per-request ML inference inline in a route handler (ADR-002)",
+        "Returning a raw error, stack trace, or internal path in an HTTP response",
+        "Skipping the middleware chain order documented in docs/standards/backend.md",
+        "Using a wildcard (*) CORS origin or matching origins with an unbounded regex on write routes",
+        "Holding a long-lived direct Postgres connection instead of the Supavisor pooler"
+      ],
+      "definitionOfDone": "Route implemented with zod validation on entry, wrapped in withErrorBoundary(), covered by Vitest tests (success, failure, auth, CORS, rate-limit paths); docs/features/*.md updated; STRIDE vectors considered for any write-path change."
+    },
+    {
+      "role": "db-engineer",
+      "scope": ["packages/db/**"],
+      "mustFollow": [
+        "R3", "R6", "R9",
+        "docs/PROJECT_PLAN.md §4", "docs/data-schema/schema.md",
+        "docs/data-schema/rls-policies.md"
+      ],
+      "forbidden": [
+        "Adding a geometry column without a GiST index",
+        "Shipping a table with RLS disabled and no ADR justifying the exception",
+        "Diverging migration SQL from what docs/data-schema/schema.md documents",
+        "Hardcoding a threshold (e.g. radius bounds, risk bands) instead of matching the §14 constants registry value",
+        "Refreshing region_risk_summary without CONCURRENTLY once the unique index exists"
+      ],
+      "definitionOfDone": "Migration applies cleanly from empty; every geometry column indexed; RLS enabled with policy matching rls-policies.md exactly; schema tests added (M6-T14); docs/data-schema/*.md kept in sync in the same PR."
+    },
+    {
+      "role": "ml-engineer",
+      "scope": ["ml/**", "packages/ml-inference/**"],
+      "mustFollow": [
+        "R6", "R9",
+        "docs/PROJECT_PLAN.md §5", "docs/ml/model-card.md",
+        "docs/ml/feature-engineering.md", "docs/ml/inference-architecture.md"
+      ],
+      "forbidden": [
+        "Randomly shuffled train/validation splits (walk-forward CV only, to avoid time-series leakage)",
+        "Auto-promoting a retrained model without human review of the model card diff",
+        "Shipping an ONNX artifact without a recorded SHA256 in ml/training/MODEL_MANIFEST.json",
+        "Hardcoding feature thresholds (e.g. temperature/humidity bands) instead of referencing the named §14 constant",
+        "Implementing per-request inference inside apps/api (ADR-002)"
+      ],
+      "definitionOfDone": "Model meets the recall >= 0.85 / precision >= 0.60 gate on walk-forward CV; ONNX export < 2MB, checksum recorded; model card updated with the new version's metrics; feature-engineering.md matches the shipped feature code."
+    },
+    {
+      "role": "devops",
+      "scope": [".github/**", "wrangler.toml", "turbo.json"],
+      "mustFollow": [
+        "R7", "R9",
+        "docs/PROJECT_PLAN.md §11", "docs/standards/git-workflow.md"
+      ],
+      "forbidden": [
+        "continue-on-error or `|| true` on any test/lint/typecheck step",
+        "Exposing any cron/background job as an HTTP-triggered workflow step calling apps/api (ADR-007)",
+        "Hardcoding a real secret value in any workflow YAML",
+        "Using an unpinned (no version/SHA) third-party GitHub Action",
+        "Merging a deploy workflow that fails hard when a required secret is simply unconfigured, instead of no-oping safely"
+      ],
+      "definitionOfDone": "Workflow YAML valid and version-pinned; the exact CI gate sequence (lint -> typecheck -> test -> build -> e2e) enforced with no bypass; docs/ci-cd.md updated with the workflow's trigger, steps, and required secrets."
+    },
+    {
+      "role": "security-reviewer",
+      "scope": ["**"],
+      "mustFollow": [
+        "R1", "R2", "R3", "R4", "R5", "R7", "R9", "R10",
+        "docs/PROJECT_PLAN.md §7", "docs/security/threat-model.md",
+        "docs/security/secrets-matrix.md", "docs/security/rate-limiting.md"
+      ],
+      "forbidden": [
+        "Approving a write-path or auth-adjacent PR with no STRIDE vectors filled in",
+        "Approving a PR where the three-pass manual test log is missing or unsigned for a write-path/LLM-touching change",
+        "Weakening a lint rule, test assertion, or manual-test description to force a gate green",
+        "Allowing a non-VITE_PUBLIC_ env reference to merge under apps/web/src",
+        "Signing off on a new table/policy without RLS enabled or an ADR exception"
+      ],
+      "definitionOfDone": "Every R-rule in docs/PROJECT_PLAN.md §0.3 audited against the actual shipped code for the PR's scope, not just the plan; findings either fixed in the PR or explicitly tracked with an owner and reason."
     }
   ]
 }

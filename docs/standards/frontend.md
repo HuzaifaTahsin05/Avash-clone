@@ -1,6 +1,120 @@
 # Frontend Coding Standards
 
-- **Framework:** React 18 + Vite (SPA)
-- **Styling:** Tailwind CSS (if applicable) or Vanilla CSS
-- **State:** React Query for server state
-- **Safety:** Always use optional chaining.
+`apps/web` is a React 18 + Vite client-rendered SPA (ADR-008) — there is no
+server rendering, no file-based API routes, and no framework magic beyond
+what Vite and React Router provide directly.
+
+## Framework & routing
+
+- **Framework:** React 18, built with Vite.
+- **Routing:** React Router, with `React.lazy` + `Suspense` per route.
+  Every entry in `router.tsx` is a lazy-loaded chunk — no route component
+  is imported eagerly at the top of `router.tsx`.
+- **State management:** TanStack Query is the **only** server-state
+  mechanism in the app. No `useEffect`-based data fetching is permitted
+  anywhere under `apps/web/src` — if a component needs server data, it
+  uses a `useQuery`/`useMutation` hook, full stop.
+- **Styling:** plain CSS with a design-token set (colors, spacing, font
+  stack) defined in `apps/web/src/styles/global.css`, plus the shared
+  `packages/ui` design system for cross-app-reusable components. Tailwind
+  is not used in this project.
+
+## `packages/ui` boundary
+
+`packages/ui` is the shared React design system — framework-agnostic of
+routing, with no dependency on `react-router-dom` or `apps/web`-specific
+state. Components in `apps/web/src/components` are app-specific,
+presentational, and may depend on routing/app state; anything reusable
+enough to be routing-agnostic belongs in `packages/ui` instead, not
+duplicated.
+
+## Feature-sliced layout
+
+`apps/web/src/features/*` holds one directory per feature domain (`map/`,
+`reports/`, `resources/`, `symptom-checker/`, `alerts/`), each owning its
+own hooks, components, and query definitions. `apps/web/src/pages/*` are
+thin route-level components that compose feature-slice pieces — page
+components do not contain feature business logic directly.
+
+## Optional-chaining checklist (R4)
+
+Every one of the following access points **must** use optional chaining
+(`?.`) or an equivalent safe-access pattern (zod parse, guarded
+destructure). Reviewers grep for raw `.property` access on each of these
+before approving a PR (`docs/PROJECT_PLAN.md` §0.4):
+
+| # | Access point | Why it is untrusted |
+|---|---|---|
+| 1 | `fetch()` response JSON (via `apiClient.ts`) | Network/server can return any shape, including an error body |
+| 2 | Supabase query results (`.data` / `.error`) | Query can fail or return `null` |
+| 3 | `JSON.parse(...)` results | Input may not match the expected shape |
+| 4 | `localStorage.getItem(...)` | Key may not exist; storage may be disabled |
+| 5 | `navigator.geolocation` callbacks | Permission may be denied; API may be unavailable |
+| 6 | `navigator.serviceWorker` / Push API callbacks | Browser support and registration state vary |
+| 7 | `Notification` API | Permission state is user-controlled and can change at any time |
+| 8 | Leaflet/Mapbox SDK event payloads | Third-party event shape is not guaranteed by our types |
+| 9 | Gemini responses (surfaced to `apps/web` only via `apps/api`'s already-validated JSON) | Treat as untrusted until it has passed the shared `packages/types` zod schema |
+| 10 | `useParams()` / `useSearchParams()` (React Router) | Route params are attacker/user-controlled strings, may be missing or malformed |
+
+## Error handling (R10)
+
+A single root `ErrorBoundary` (`apps/web/src/components/ErrorBoundary.tsx`)
+wraps the router. It renders a generic, user-safe fallback message and
+**never** displays a raw error message or stack trace. Data-fetching
+errors surfaced by TanStack Query are rendered through the same
+generic-message + toast pattern — never a raw `error.message` from an
+untrusted source rendered directly into the DOM.
+
+## Bundle budget
+
+The main shell bundle budget is **< 180 KB gzip**
+(`FRONTEND_BUNDLE_BUDGET_KB`, `docs/PROJECT_PLAN.md` §14). Enforced via
+`rollup-plugin-visualizer` in `vite.config.ts` (measured, M2-T12) and a CI
+gate (M5-T03). Leaflet/Mapbox and other map-route-only dependencies are
+chunk-split so they never contribute to the shell bundle for users who
+never open the map.
+
+## Environment access
+
+`apps/web` may only reference environment variables prefixed
+`VITE_PUBLIC_`. Any other `import.meta.env`/`process.env` access under
+`apps/web/src` is a hard build failure, enforced by the ESLint boundary
+rule in `packages/config/eslint-config` (`docs/PROJECT_PLAN.md` §7.1) and,
+independently, by Vite's default refusal to inline non-`VITE_`-prefixed
+vars into the client bundle. This is an absolute rule — there is no
+exception path.
+
+## Accessibility standards
+
+- Exactly one `<h1>` per page.
+- All interactive elements are reachable and operable by keyboard alone
+  (no mouse-only interaction).
+- Status/state changes that are visually communicated (e.g., the API
+  status panel, form submission results) are also announced to assistive
+  technology (`aria-live` regions where appropriate).
+- Color is never the only signal for risk-level bands (`RISK_LEVEL_BANDS`)
+  — pair color with text/icon.
+
+## Performance best practices
+
+- Lazy-load anything not needed for first paint (map/Leaflet chunk, ONNX
+  runtime, admin-only routes).
+- No arbitrary `waitForTimeout`-style artificial delays anywhere in
+  production code.
+- Images/icons are sized and compressed appropriately; no unoptimized
+  raster assets shipped to the client.
+- PWA caching strategy (`vite-plugin-pwa`/Workbox, `docs/PROJECT_PLAN.md`
+  §8): `NetworkFirst` for `apps/api` data, `CacheFirst` for map tiles
+  (7-day expiry, max 200 entries), `StaleWhileRevalidate` for static
+  assets/fonts.
+
+## Layout & typography
+
+- Font stack includes a Bengali-capable fallback (the app renders both
+  Bengali and English text; `আভাস` must render correctly with no tofu
+  glyphs).
+- Layout is defined with CSS Grid/Flexbox in `global.css`; no
+  layout-shifting content — skeleton loaders reserve the same space the
+  loaded content will occupy (Cumulative Layout Shift target < 0.1, §8).
+- Spacing and color tokens live in `global.css` as CSS custom properties,
+  consumed by both `apps/web` components and `packages/ui`.
