@@ -26,14 +26,13 @@ One feature, fully working end-to-end (DB → `apps/api` → `apps/web` →
 docs → 3 manual tests → automated tests), before starting the next. A PR
 that only touches the database schema for a not-yet-built feature, or only
 the UI for a feature with no backing API, is rejected unless it is
-explicitly scoped as a **foundation slice** (e.g., M1's docs-only scope,
-or a schema-only migration PR that a later PR in the same slice will build
-on within the same work session).
+explicitly scoped as a **foundation slice** (e.g., a docs-only governance
+PR, or a schema-only migration PR that a later PR in the same slice will
+build on within the same work session).
 
 ## Review checklist
 
-- [ ] PR is scoped to one vertical slice / one milestone task group — no
-      unrelated changes bundled in.
+- [ ] PR is scoped to one vertical slice — no unrelated changes bundled in.
 - [ ] Docs updated in the same PR as the code (§12 template: Gist /
       Technical Detail / Critical Constants / Security Considerations /
       Manual Test Log).

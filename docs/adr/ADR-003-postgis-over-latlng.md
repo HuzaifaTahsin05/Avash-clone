@@ -34,7 +34,7 @@ SQL queries instead of application-level math. `region_risk_summary`
 (ADR-006) and every `ST_DWithin` in `packages/geo` depend on this.
 
 **Harder:** requires the `postgis` extension enabled on the Supabase
-project, geometry-aware type generation for `packages/types` (M6-T10), and
+project, geometry-aware type generation for `packages/types`, and
 contributors need at least a basic working knowledge of PostGIS query
 syntax (`docs/standards/backend.md` and `docs/data-schema/schema.md`
 document the query discipline expected).

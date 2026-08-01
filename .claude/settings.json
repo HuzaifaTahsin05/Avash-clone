@@ -1,5 +1,5 @@
 {
   "project": "Avash",
-  "customInstructions": "Single source of truth: docs/PROJECT_PLAN.md. If a plan conflicts with it, stop and flag the conflict instead of proceeding. Core rules: (R1) apps/web is a static SPA, no SSR. (R2) secrets never touch apps/web — anything non-VITE_PUBLIC_ lives in apps/api or GitHub Actions. (R3) all shared types live in packages/types, never redefined inline. See AGENTS.md for the full rule set and temp/IMPLEMENTATION_INSTRUCTIONS_1.md for the milestone execution schedule.",
+  "customInstructions": "Single source of truth: docs/PROJECT_PLAN.md. If a plan conflicts with it, stop and flag the conflict instead of proceeding. Core rules: (R1) apps/web is a static SPA, no SSR. (R2) secrets never touch apps/web — anything non-VITE_PUBLIC_ lives in apps/api or GitHub Actions. (R3) all shared types live in packages/types, never redefined inline. See AGENTS.md for the full rule set.",
   "skills": ["react", "vite", "hono", "cloudflare-workers", "postgis"]
 }

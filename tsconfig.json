@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@avash/config/*": ["./packages/config/*"],
+      "@avash/db/*": ["./packages/db/*"],
+      "@avash/geo": ["./packages/geo/index.ts"],
+      "@avash/geo/*": ["./packages/geo/*"],
+      "@avash/logger": ["./packages/logger/index.ts"],
+      "@avash/logger/*": ["./packages/logger/*"],
+      "@avash/ml-inference": ["./packages/ml-inference/index.ts"],
+      "@avash/ml-inference/*": ["./packages/ml-inference/*"],
+      "@avash/security": ["./packages/security/index.ts"],
+      "@avash/security/*": ["./packages/security/*"],
+      "@avash/types": ["./packages/types/index.ts"],
+      "@avash/types/*": ["./packages/types/*"],
+      "@avash/ui": ["./packages/ui/index.tsx"],
+      "@avash/ui/*": ["./packages/ui/*"]
+    }
+  },
+  "files": []
+}

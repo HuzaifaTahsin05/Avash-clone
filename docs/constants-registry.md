@@ -5,9 +5,8 @@ codebase, mirroring `docs/PROJECT_PLAN.md` §14 exactly. **If you hardcode
 a number anywhere else, it must appear here first** — add the row (and the
 corresponding §14 row) in the same PR that introduces the value.
 
-`Status` starts `documented` for every row as of Milestone 1 (docs-only).
-A row flips to `implemented` only once the constant is actually wired into
-the code location listed, in the milestone that builds that code.
+`Status` starts `documented` for every row. A row flips to `implemented`
+only once the constant is actually wired into the code location listed.
 
 | Constant | Value | Defined in | Purpose | Status |
 |---|---|---|---|---|
@@ -30,7 +29,7 @@ the code location listed, in the milestone that builds that code.
 | `GEMINI_DAILY_QUOTA_GUARD` | 1500 req/day (global) | `packages/security/quotaGuard.ts` | free-tier cost circuit breaker | documented |
 | `ALERT_PROXIMITY_RADIUS_DEFAULT_M` | 2000 (bounds: 100–20,000) | `packages/geo`, `alert_subscriptions` check constraint | `ST_DWithin` default/ceiling | documented |
 | `DB_STATEMENT_TIMEOUT_S` | 5 | Supabase API role config | prevents runaway spatial queries | documented |
-| `FRONTEND_BUNDLE_BUDGET_KB` | < 180 KB gzip (shell) | `apps/web/vite.config.ts` bundle analyzer CI check | performance | documented |
+| `FRONTEND_BUNDLE_BUDGET_KB` | < 180 KB gzip (shell) | `apps/web/vite.config.ts` bundle analyzer CI check | performance | implemented |
 | `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/src/middleware/cors.ts` | cross-origin write protection | documented |
 
 That is 20 named rows covering all 22 individual constants from §14
@@ -48,16 +47,14 @@ do not introduce a bare literal and document it "later."
 
 ## Flipping a row to `implemented`
 
-A later milestone flips a row's `Status` to `implemented` once the
-constant is actually read from its documented location in shipped code
-(not just referenced in a comment or a doc). The milestone that does the
-flipping records it in that milestone's Completion Report. Expected
-flip points per the execution schedule:
+A row's `Status` flips to `implemented` once the constant is actually read
+from its documented location in shipped code (not just referenced in a
+comment or a doc). The PR that wires it in records the flip in the same
+change. Expected flip points:
 
-- `FRONTEND_BUNDLE_BUDGET_KB` — M2 (frontend scaffold, M2-T14).
+- `FRONTEND_BUNDLE_BUDGET_KB` — frontend scaffold (bundle budget CI check).
 - `RISK_LEVEL_BANDS`, `ALERT_PROXIMITY_RADIUS_DEFAULT_M`,
-  `DB_STATEMENT_TIMEOUT_S`, `MV_REFRESH_INTERVAL` — M6 (database schema,
-  M6-T15).
-- `CORS_ALLOWED_ORIGINS` — M3 (backend scaffold).
+  `DB_STATEMENT_TIMEOUT_S`, `MV_REFRESH_INTERVAL` — database schema build-out.
+- `CORS_ALLOWED_ORIGINS` — backend scaffold.
 - The remaining ML, rate-limit, and cadence constants flip as their owning
   vertical slice ships (`docs/PROJECT_PLAN.md` §13, slices 3, 4, 5, 7).

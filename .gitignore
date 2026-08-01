@@ -1,0 +1,9 @@
+node_modules
+dist
+.turbo
+*.log
+
+# Playwright (apps/web)
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/playwright/.cache/

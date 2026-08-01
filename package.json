@@ -5,10 +5,19 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,css}\""
   },
   "devDependencies": {
-    "turbo": "latest"
+    "turbo": "latest",
+    "typescript": "^5.5.4",
+    "eslint": "^9.9.0",
+    "typescript-eslint": "^8.2.0",
+    "prettier": "^3.3.3",
+    "vitest": "^2.0.5",
+    "@types/node": "^20.14.15"
   },
   "engines": {
     "node": ">=18"

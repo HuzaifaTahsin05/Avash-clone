@@ -1,1 +1,8 @@
-{"name": "@avash/config", "version": "1.0.0"}
+{
+  "name": "@avash/config",
+  "version": "1.0.0",
+  "private": true,
+  "exports": {
+    "./tsconfig.base.json": "./tsconfig.base.json"
+  }
+}

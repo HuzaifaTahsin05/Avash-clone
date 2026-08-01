@@ -115,8 +115,8 @@ flowchart LR
 ## Quickstart
 
 **Prerequisites:** Node 20+, `pnpm` (`packageManager: pnpm@9.1.0`),
-Python 3.11+ (for `ml/`), a Supabase project (for anything beyond the M1–M4
-scaffold).
+Python 3.11+ (for `ml/`), a Supabase project (for anything beyond the
+static frontend/backend scaffold).
 
 ```bash
 # install workspace dependencies
@@ -156,11 +156,11 @@ DB migrations, ML training/export/inference).
 
 ## Status
 
-Actively built milestone-by-milestone against
-`temp/IMPLEMENTATION_INSTRUCTIONS_1.md`, currently in **Milestone 1
-(Documentation, Governance & Agent Configuration)**. No application code
-has shipped yet — see `docs/PROJECT_PLAN.md` §13 for the full vertical
-slice order once implementation begins.
+Actively under development. Governance and engineering-standards
+documentation is in place, and the frontend scaffold — an installable,
+typechecked, linted, and end-to-end-tested single-page React shell — is
+implemented. See `docs/PROJECT_PLAN.md` §13 for the full vertical-slice
+build order for everything still ahead.
 
 ## License
 

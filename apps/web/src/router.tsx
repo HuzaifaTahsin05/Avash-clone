@@ -1,9 +1,17 @@
 import { createBrowserRouter } from 'react-router-dom';
-import React from 'react';
+import Home from './pages/Home';
+import NotFound from './pages/NotFound';
+import { RouteError } from './components/RouteError';
 
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <div>Welcome to আভাস</div>,
+    element: <Home />,
+    errorElement: <RouteError />,
+  },
+  {
+    path: '*',
+    element: <NotFound />,
+    errorElement: <RouteError />,
   },
 ]);

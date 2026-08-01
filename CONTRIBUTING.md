@@ -24,6 +24,21 @@ without breaking that discipline.
 7. Do not modify a test, a lint rule, or a manual-test description to force a
    broken feature to "pass."
 
+## Terminology
+
+Work is described by what it does, not by a project-management label.
+Use the vertical-slice name (`docs/PROJECT_PLAN.md` §13) or a plain
+feature description in commits, PR titles/descriptions, code comments,
+and docs — e.g. "frontend scaffold" or "breeding-site reporting," not
+"Milestone 2" or "M2." Numbered milestone/phase labels and references to
+internal planning documents (execution schedules, task-tracker exports,
+etc.) do not belong in anything that ships with the repo: they go stale
+the moment the plan is re-sequenced, and they force a reader to go find
+the planning document to understand a commit that should be
+self-explanatory. If you're pulling from an external planning doc when
+drafting a PR, translate its scope into a feature description before it
+lands in the repo — don't carry the label over.
+
 ## Branch naming
 
 | Prefix | Use |

@@ -20,7 +20,7 @@
 12. `python ml/serving/predict.py` — run a batch inference pass locally (same script GH Actions runs on schedule)
 13. `pnpm tsx scripts/jobs/weather-ingest.ts` — run the weather ingest job locally
 
-> A combined root `pnpm dev` (both apps concurrently) is added in Milestone 4 (`M4-T09`) — until then, run the two dev servers in separate terminals.
+> A combined root `pnpm dev` (both apps concurrently) will be added once the backend integration work lands — until then, run the two dev servers in separate terminals.
 
 ## Where things live
 - Read the full picture: `docs/PROJECT_PLAN.md` (this project's single source of truth), then `AGENTS.md` for hard rules.
@@ -28,7 +28,7 @@
 - Anything secret-touching: `apps/api/src/routes/*`, or `scripts/jobs/*` / `ml/serving/*` for cron work.
   `apps/web` never touches a secret — if you find yourself about to, stop.
 - Constants: never hardcode — check `docs/PROJECT_PLAN.md` §14 first (mirrored in `docs/constants-registry.md`).
-- Execution schedule: `temp/IMPLEMENTATION_INSTRUCTIONS_1.md` governs milestone-by-milestone build order (M1 → M7). `docs/PROJECT_PLAN.md` wins on any conflict.
+- Build order: `docs/PROJECT_PLAN.md` §13 governs the vertical-slice build order. It wins on any conflict.
 
 ## Context hygiene
 Keep working context under ~40% capacity. Summarize prior findings instead
