@@ -465,19 +465,34 @@ All routes mounted in `apps/api/src/index.ts`. Every request passes through `mid
 
 | Variable | Exposure | Used by |
 |---|---|---|
+| `SUPABASE_URL` | server-only | `apps/api`, GH Actions job scripts, `ml/serving/predict.py` (same value as `VITE_PUBLIC_SUPABASE_URL`; not secret, but server-side consumers read it under this name) |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-only | `apps/api`, GH Actions job scripts |
 | `SUPABASE_JWT_SECRET` | server-only | `apps/api` (local JWT verification, ADR-009) |
 | `VITE_PUBLIC_SUPABASE_URL` / `VITE_PUBLIC_SUPABASE_ANON_KEY` | client (`apps/web`) | citizen reads, Realtime subscriptions — real gate is RLS, not secrecy |
+| `VITE_PUBLIC_API_BASE_URL` | client (`apps/web`) | base URL of the `apps/api` Worker, used by `apps/web/src/lib/apiClient.ts` |
 | `GEMINI_API_KEY` | server-only | `apps/api` routes, `scripts/jobs/news-scan.ts` |
 | `OPENWEATHERMAP_API_KEY` | server-only | `scripts/jobs/weather-ingest.ts` |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | server-only | `apps/api` rate limiter |
 | `TURNSTILE_SECRET_KEY` | server-only | `apps/api` (server-side verification call) |
 | `VITE_PUBLIC_TURNSTILE_SITE_KEY` | client | widget render only |
 | `VITE_PUBLIC_MAPBOX_TOKEN` | client | scoped to domain-restricted, read-only Mapbox token |
-| `VAPID_PUBLIC_KEY` | client (`apps/web`) | Push subscription registration |
+| `VITE_PUBLIC_VAPID_PUBLIC_KEY` | client (`apps/web`) | Push subscription registration |
+| `VAPID_PUBLIC_KEY` | server-only | `ml/serving/predict.py` (Web Push signing needs both halves of the keypair); same value as `VITE_PUBLIC_VAPID_PUBLIC_KEY` |
 | `VAPID_PRIVATE_KEY` | server-only | `ml/serving/predict.py` (sends push notifications), never in any deployed app |
 
 Rule: any variable without the `VITE_PUBLIC_` prefix must never be imported into `apps/web` source — enforced via an ESLint boundary rule (`packages/config/eslint-config`) that fails the build if a non-prefixed env access appears anywhere under `apps/web/src`. Vite itself also refuses to inline non-`VITE_`-prefixed vars into the client bundle by default — this is a defense-in-depth double lock, not a single point of failure.
+
+**Corollary — a client-consumed variable must carry the prefix in its own name.** A value that legitimately needs to reach the browser cannot be named without `VITE_PUBLIC_` and still be readable: the ESLint rule rejects the source-level access *and* Vite declines to inline it. This is why the VAPID public key appears twice above under two names — `VITE_PUBLIC_VAPID_PUBLIC_KEY` for the browser's subscription call, `VAPID_PUBLIC_KEY` for the Python signing path — rather than once under a bare name that neither lock would let the client read.
+
+**Local development files.** Each of the three runtime contexts loads its own gitignored file, with a committed `*.example` template as the tracked inventory:
+
+| Context | Real file (gitignored) | Tracked template | Loaded by |
+|---|---|---|---|
+| `apps/web` browser bundle | `apps/web/.env` | `apps/web/.env.example` | Vite, at build time — `VITE_PUBLIC_` keys only |
+| `apps/api` Worker | `apps/api/.dev.vars` | `apps/api/.dev.vars.example` | `wrangler dev`, injected as typed `Bindings` (`apps/api/src/types.ts`) |
+| Job scripts + `ml/` | `.env` (repo root) | `.env.example` | `scripts/jobs/*`, `ml/serving/*` when run locally |
+
+`.gitignore` ignores `.env`, `.env.*`, `.dev.vars`, and `.dev.vars.*` while re-including the `*.example` templates, so a real credential cannot be committed by following the setup instructions. Deployed environments never read these files — see `docs/security/secrets-matrix.md` for the per-environment mechanism.
 
 ### 7.2 Threat Model (STRIDE, by feature)
 
@@ -578,13 +593,13 @@ Every feature PR must include all three passes, documented inline in the PR desc
 2. Submit a valid report with geolocation granted → appears in "My Reports" as pending, moderator sees it in queue.
 3. Submit 10 reports in 30 seconds from the same IP → 6th onward rejected with generic "Too many requests" toast; submit `<script>alert(1)</script>` as description → stored as inert text, never executed; call `POST https://<api-domain>/api/reports/breeding-site` directly with `lat: 999` → rejected 400 by zod schema before hitting the DB; call it from an unregistered `Origin` header → rejected by CORS before it reaches the handler.
 
-Use `playwright` for automated regression tests, but **manual testing is mandatory** for every PR touching a write path or LLM-touching feature. The three-pass checklist must be filled out in the PR description and signed off by the reviewer.
+Use `playwright` for automated regression tests — `apps/web` end-to-end (a real browser against the production preview), `apps/api` (real HTTP requests against a live `wrangler dev`/Miniflare instance), and `packages/*` (pure logic, no browser or server, `test`/`expect` only) — but **manual testing is mandatory** for every PR touching a write path or LLM-touching feature. The three-pass checklist must be filled out in the PR description and signed off by the reviewer.
 
 ---
 
 ## 11. CI/CD Pipeline
 
-`turbo.json` pipeline: `lint → typecheck → test (vitest, packages + apps/api logic) → build (apps/web, apps/api)`. GitHub Actions (`ci.yml`) runs this matrix on every PR; `codeql.yml` runs SAST on every PR and weekly on schedule; `deploy-web.yml` builds `apps/web` (Vite) and publishes the static output to Cloudflare Pages (preview per PR, production on `main` merge); `deploy-api.yml` runs `wrangler deploy` for `apps/api` on `main` merge.
+`turbo.json` pipeline: `lint → typecheck → test (playwright, packages + apps/api logic + apps/web end-to-end) → build (apps/web, apps/api)`. **Playwright is the single automated test framework for the whole repo** — no Vitest anywhere. `packages/*` specs are pure logic (`test`/`expect`, no server, no browser). `apps/api` specs run as real HTTP requests via Playwright's `request` fixture against a `wrangler dev` instance its own config starts (`webServer`) — independent of a prior `build` step, since `wrangler dev` bundles on the fly. `apps/web` specs run against the **production preview** (`pnpm preview`), which does need `dist/` built first — so in CI, `apps/web`'s end-to-end stage specifically runs after `build`, per M5-T01/M2-T13; `apps/api`'s and `packages/*`'s test stages have no such dependency. GitHub Actions (`ci.yml`) runs this matrix on every PR; `codeql.yml` runs SAST on every PR and weekly on schedule; `deploy-web.yml` builds `apps/web` (Vite) and publishes the static output to Cloudflare Pages (preview per PR, production on `main` merge); `deploy-api.yml` runs `wrangler deploy` for `apps/api` on `main` merge.
 
 CI must fail the build on: any ESLint error/warning, any TypeScript error, any unused export flagged by `ts-prune`, any CodeQL high/critical finding, model checksum mismatch (for ML artifact PRs), and any client bundle referencing a non-`VITE_PUBLIC_`-prefixed env var.
 
@@ -654,7 +669,7 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 | `ALERT_PROXIMITY_RADIUS_DEFAULT_M` | 2000 (bounds: 100–20,000) | `packages/geo`, `alert_subscriptions` check constraint | `ST_DWithin` default/ceiling |
 | `DB_STATEMENT_TIMEOUT_S` | 5 | Supabase API role config | prevents runaway spatial queries |
 | `FRONTEND_BUNDLE_BUDGET_KB` | < 180 KB gzip (shell) | `apps/web/vite.config.ts` bundle analyzer CI check | performance |
-| `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/src/middleware/cors.ts` | cross-origin write protection |
+| `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/wrangler.toml` (`CORS_ALLOWED_ORIGINS`, `CORS_PREVIEW_ORIGIN_SUFFIX` vars), read in `apps/api/src/config/cors.ts` | cross-origin write protection |
 
 ---
 
@@ -730,7 +745,7 @@ writing code, per §7.2's format. Add it to `docs/security/threat-model.md`.
 - `pnpm --filter web dev` — Vite dev server for the React SPA
 - `pnpm --filter api dev` — `wrangler dev` for the Hono Worker API
 - `pnpm lint` / `pnpm typecheck` / `pnpm build` — turbo pipeline across both apps, run before every commit
-- `pnpm --filter @avash/security test` (etc.) — vitest for `packages/*` logic (geo, security, ml-inference wrapper)
+- `pnpm --filter @avash/security test` (etc.) — playwright for `packages/*` logic (geo, security, ml-inference wrapper) — the same test framework as `apps/api` and `apps/web`, just without a server or browser fixture
 - `pnpm db:migrate` — apply `packages/db/supabase/migrations`
 - `pnpm db:seed` — `scripts/seed-db.ts` (regions, sample hospitals, historical cases)
 - `python ml/training/train.py` — retrain models (requires `ml/data` populated via DVC pull)

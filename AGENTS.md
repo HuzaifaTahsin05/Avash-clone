@@ -24,10 +24,13 @@ no server. Anything that must stay secret or server-side belongs in
   detail, critical constants table, security considerations.
 - Write generic, user-friendly error/toast messages. Log full detail
   server-side with a correlation ID instead.
-- Cover every behavior change with **both** automated tests — Vitest for
-  `packages/*`/`apps/api` logic, Playwright end-to-end regression for
-  `apps/web` — **and** the §10 three-pass manual protocol, with reviewer
-  sign-off on the manual checklist. Manual testing is mandatory for any
+- Cover every behavior change with **both** automated tests — Playwright
+  for `packages/*`/`apps/api` logic (no browser fixture — `packages/*` is
+  in-process, `apps/api` is real HTTP against `wrangler dev`) and
+  Playwright end-to-end regression for `apps/web` (a real browser against
+  the production preview) — **and** the §10 three-pass manual protocol,
+  with reviewer sign-off on the manual checklist. One test framework for
+  the whole repo, no Vitest. Manual testing is mandatory for any
   write-path or LLM-touching change; automated coverage never substitutes
   for it and vice versa. Run the passes and report the results.
 - Match existing patterns in the file/module you are editing.

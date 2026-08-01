@@ -20,7 +20,7 @@
 - [ ] N/A — no behavior change
 
 ## Automated test evidence
-<!-- Paste Vitest and/or Playwright run output/summary. -->
+<!-- Paste Playwright run output/summary (packages/*, apps/api, and/or apps/web e2e). -->
 
 ```
 <paste here>

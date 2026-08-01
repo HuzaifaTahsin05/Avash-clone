@@ -66,8 +66,12 @@ Scope the commit where useful, e.g. `feat(api): add breeding report route`.
 Every PR ships **both** automated tests and the manual protocol — neither
 substitutes for the other:
 
-- **Automated:** Vitest for `packages/*` and `apps/api` logic; Playwright
-  end-to-end regression for `apps/web`. Both run in CI (`ci.yml`).
+- **Automated:** Playwright for everything — `packages/*` and `apps/api`
+  logic (`pnpm test`), and end-to-end regression for `apps/web`
+  (`pnpm --filter web test:e2e`). One test framework repo-wide, no
+  Vitest; see `docs/standards/testing.md` for the three fixture profiles
+  (in-process, real HTTP against `wrangler dev`, real browser). All run
+  in CI (`ci.yml`).
 - **Manual, three-pass:** Pass 1 (assume not implemented — graceful
   degradation), Pass 2 (assume implemented correctly — happy path), Pass 3
   (assume full of bugs/security flaws — actively attack it). See
@@ -107,7 +111,7 @@ What changed and why, in 2-3 sentences.
 - [ ] N/A — no behavior change
 
 ## Automated test evidence
-Vitest and/or Playwright run output/summary pasted here.
+Playwright run output/summary pasted here.
 
 ## Manual test log (three-pass, §10)
 ### Pass 1 — Assume not implemented

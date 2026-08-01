@@ -1,29 +1,61 @@
 # Testing Standards
 
-Avash uses a **three-layer** testing strategy (`docs/PROJECT_PLAN.md` §10,
-§11, R5). No layer substitutes for another — all three are required for a
+Avash uses a **two-layer** testing strategy (`docs/PROJECT_PLAN.md` §10,
+§11, R5). No layer substitutes for another — both are required for a
 slice to be considered done.
 
 | Layer | Tool | Covers | Runs where |
 |---|---|---|---|
-| Unit / logic | Vitest | `packages/*`, `apps/api` route + middleware logic | CI on every PR |
-| End-to-end regression | **Playwright** | `apps/web` behavior against a running API | CI on every PR |
+| Automated (logic, API, end-to-end) | **Playwright** | `packages/*` logic, `apps/api` routes/middleware, `apps/web` end-to-end | CI on every PR |
 | Manual, three-pass | none — human | every feature; **mandatory** for write-path and LLM-touching changes | before every PR, logged in the description |
 
-**Scope limit:** Playwright end-to-end specs are the only automated test
-layer for `apps/web`. No jsdom/React-Testing-Library component-unit suite
-is added — behavioral coverage for the frontend comes entirely from
-Playwright running against a real production build (`pnpm preview`), not
-from mocked component renders.
+**Playwright is the single automated test framework for the entire
+repository** — there is no Vitest anywhere. One test runner, one assertion
+library (`test`/`expect` from `@playwright/test`), three different fixture
+profiles depending on what's being tested:
+
+| Target | Fixture used | What actually runs |
+|---|---|---|
+| `packages/*` logic | none — plain `test`/`expect` | In-process function calls. No server, no browser. |
+| `apps/api` routes/middleware | `request` (`APIRequestContext`) | Real HTTP requests against a live `wrangler dev` (Miniflare) instance the spec's own `playwright.config.ts` starts via `webServer`. |
+| `apps/web` end-to-end | `page` (real browser) | A real browser driving the **production build** (`pnpm preview`), never the dev server. |
+
+**Scope limit (unchanged):** for `apps/web`, Playwright end-to-end specs
+are the only automated layer — no jsdom/React-Testing-Library
+component-unit suite. The same principle now extends repo-wide: no second
+test framework is introduced for `apps/api` or `packages/*` either,
+however small the logic under test — a package with no HTTP surface still
+uses `@playwright/test`'s bare `test`/`expect`, not a separate unit-test
+tool, so the whole repo has exactly one test runner to learn, configure,
+and run in CI.
 
 ## Automated layer specifics
 
-- **Vitest** covers `packages/*` (business logic — geo query-fragment
-  builders, security validators/rate-limit key generation, logger
-  redaction, type schema round-trips) and `apps/api` (route handlers,
-  middleware, error boundary behavior). Run via `pnpm test`.
-- **Playwright** covers `apps/web` end-to-end: routing, resilience
-  (API errors/timeouts/offline), integration with `apps/api`, and
+- **`packages/*`** — pure logic, tested in-process with no server or
+  browser fixture (e.g. `packages/logger/test/logger.spec.ts` covers
+  redaction, `handleError`, `buildGenericErrorBody`). Each package that
+  has tests declares its own minimal `playwright.config.ts`
+  (`testDir: './test'`, no `webServer`, no browser `projects`) and a
+  `"test": "playwright test"` script. Run via `pnpm test`.
+- **`apps/api`** — route handlers, middleware, and error-boundary
+  behavior, tested as real HTTP requests via the `request` fixture
+  against `wrangler dev` (not an in-process call to the Hono app) — the
+  same "test the real runtime" philosophy as `apps/web`'s
+  production-preview requirement. The one exception is the error-boundary
+  spec, which builds a throwaway Hono instance in-process rather than
+  adding a debug-only route that deliberately throws to the real,
+  deployed app. Specs live in a top-level `apps/api/test/` directory
+  mirroring `src/` (e.g. `test/routes/health.spec.ts` for
+  `src/routes/health.ts`) — a dedicated test tree, not colocated
+  `*.spec.ts` files beside source, consistent with how `apps/web/e2e/`
+  is kept separate from `apps/web/src/`. Run via `pnpm --filter api test`.
+  `apps/api`'s TypeScript is split across two `tsconfig`s
+  (`docs/standards/backend.md`) specifically so Node's ambient `process`
+  global — needed by `playwright.config.ts`'s `process.env.CI` check —
+  never becomes visible to the actual Worker source, which must only ever
+  read config through the typed `Bindings` interface.
+- **`apps/web`** — end-to-end: routing, resilience (API
+  errors/timeouts/offline), integration with `apps/api`, and
   browser-observable security behavior (XSS inertness, no leaked secrets).
   Specs run against `pnpm preview` (the production build), not the dev
   server, so what's tested matches what ships. Run via

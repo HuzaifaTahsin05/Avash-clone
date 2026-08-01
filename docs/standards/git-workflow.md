@@ -45,7 +45,7 @@ build on within the same work session).
 - [ ] Every new hardcoded constant/threshold is added to
       `docs/PROJECT_PLAN.md` §14 and `docs/constants-registry.md` first.
 - [ ] No unused imports, variables, or functions left behind.
-- [ ] Automated test evidence (Vitest and/or Playwright) attached.
+- [ ] Automated test evidence (Playwright — `packages/*` logic, `apps/api`, and/or `apps/web` end-to-end) attached.
 - [ ] Three-pass manual test log present for any write-path or
       LLM-touching change, with reviewer sign-off recorded.
 - [ ] STRIDE security-vectors section filled in for any write-path or
@@ -65,8 +65,8 @@ CI (`ci.yml`) fails the build — and therefore blocks merge — on:
 6. Any client bundle referencing a non-`VITE_PUBLIC_`-prefixed env var
    (scanned directly against the built `apps/web/dist` output, not only
    caught by lint — defense in depth).
-7. Any failing Vitest or Playwright spec — no `continue-on-error`, no
-   `|| true` anywhere in any workflow.
+7. Any failing Playwright spec (`packages/*`, `apps/api`, or `apps/web`)
+   — no `continue-on-error`, no `|| true` anywhere in any workflow.
 
 `deploy-web.yml` and `deploy-api.yml` only run after `ci.yml` is green on
 `main`; neither deploy workflow re-runs the test suite, so a merge to
