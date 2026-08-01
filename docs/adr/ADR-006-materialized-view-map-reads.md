@@ -43,4 +43,4 @@ path, matching the performance targets in §8.
 without an inherent staleness signal beyond `generated_at`. The unique
 index is a hard prerequisite: without it, `refresh ... concurrently` fails
 at runtime, so schema migrations must create it in the same migration as
-the view (M6-T05).
+the view.

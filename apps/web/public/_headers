@@ -1,0 +1,10 @@
+# Cloudflare Pages custom headers (docs/PROJECT_PLAN.md §7.4).
+# NOTE: connect-src's API origin is a placeholder until the frontend/backend
+# integration work wires up the real apps/api origin.
+/*
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://api.avash.example.placeholder; script-src 'self'; style-src 'self' 'unsafe-inline';
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(self), notifications=(self)

@@ -60,12 +60,11 @@ Info Disclosure, DoS, Elevation of Privilege) for that feature before
 writing code, per `docs/PROJECT_PLAN.md` §7.2's format. Add it to
 `docs/security/threat-model.md`.
 
-## Milestone Discipline
-This project is executed against a milestone-by-milestone execution plan
-(originally supplied as `temp/IMPLEMENTATION_INSTRUCTIONS_1.md`). Work
-proceeds strictly in milestone order (M1 → M7); each milestone ends with an
-Exit Gate and a Completion Report, and requires explicit user confirmation
-(`CONTINUE M<n>`) before the next milestone begins. Do not read ahead into a
-later milestone's tasks, do not skip a micro-task's Acceptance check, and do
-not weaken a gate to force it green — report a blocked task instead of
-substituting different work for it.
+## Execution Discipline
+Work proceeds one vertical slice at a time, per `docs/PROJECT_PLAN.md`
+§13. Each slice ends with an explicit exit check (typecheck, lint, test,
+build, and any slice-specific acceptance criteria) and a completion
+summary, and requires explicit user confirmation before the next slice
+begins. Do not start work that belongs to a later slice, do not skip an
+acceptance check, and do not weaken a gate to force it green — report a
+blocked task instead of substituting different work for it.

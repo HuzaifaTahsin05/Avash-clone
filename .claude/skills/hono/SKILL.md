@@ -41,7 +41,7 @@ Strict allow-list only, read from config — never `*`, never a wildcard on
 write routes. An unlisted `Origin` gets **no** CORS header back at all
 (not an explicit rejection header — just absence). Local dev origin
 (`http://localhost:5173`) is allowed only in the development environment
-config, never merged into the production list (M4-T07).
+config, never merged into the production list.
 
 ## The R7 no-jobs-endpoint rule
 

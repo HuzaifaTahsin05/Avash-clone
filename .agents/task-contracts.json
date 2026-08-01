@@ -52,7 +52,7 @@
         "Hardcoding a threshold (e.g. radius bounds, risk bands) instead of matching the §14 constants registry value",
         "Refreshing region_risk_summary without CONCURRENTLY once the unique index exists"
       ],
-      "definitionOfDone": "Migration applies cleanly from empty; every geometry column indexed; RLS enabled with policy matching rls-policies.md exactly; schema tests added (M6-T14); docs/data-schema/*.md kept in sync in the same PR."
+      "definitionOfDone": "Migration applies cleanly from empty; every geometry column indexed; RLS enabled with policy matching rls-policies.md exactly; schema tests added; docs/data-schema/*.md kept in sync in the same PR."
     },
     {
       "role": "ml-engineer",

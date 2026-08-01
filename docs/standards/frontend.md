@@ -69,8 +69,8 @@ untrusted source rendered directly into the DOM.
 
 The main shell bundle budget is **< 180 KB gzip**
 (`FRONTEND_BUNDLE_BUDGET_KB`, `docs/PROJECT_PLAN.md` §14). Enforced via
-`rollup-plugin-visualizer` in `vite.config.ts` (measured, M2-T12) and a CI
-gate (M5-T03). Leaflet/Mapbox and other map-route-only dependencies are
+`rollup-plugin-visualizer` in `vite.config.ts` (measured on every build)
+and a CI gate. Leaflet/Mapbox and other map-route-only dependencies are
 chunk-split so they never contribute to the shell bundle for users who
 never open the map.
 

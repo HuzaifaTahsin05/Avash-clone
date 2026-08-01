@@ -2,9 +2,9 @@
 
 > **This document describes the target schema** as specified in
 > `docs/PROJECT_PLAN.md` §4. The actual migration SQL is written in
-> **Milestone 6** (`packages/db/supabase/migrations/`). Until M6 ships,
-> this file documents intent, not a deployed database — do not assume any
-> of these tables exist yet.
+> `packages/db/supabase/migrations/` once the database build-out begins.
+> Until then, this file documents intent, not a deployed database — do not
+> assume any of these tables exist yet.
 
 All tables live in the Supabase Postgres project with the `postgis` and
 `pgcrypto` extensions enabled. Every geometry column uses SRID 4326

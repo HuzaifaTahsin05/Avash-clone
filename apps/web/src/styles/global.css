@@ -1,0 +1,107 @@
+/* Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Design tokens */
+:root {
+  --color-bg: #0b1220;
+  --color-surface: #131c2e;
+  --color-text: #f5f7fa;
+  --color-text-muted: #b8c2d1;
+  --color-primary: #0b6e4f;
+  --color-warning: #d9a441;
+  --color-danger: #c94a4a;
+  --color-border: #263048;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+
+  --font-sans:
+    'Noto Sans Bengali', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --radius: 8px;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+}
+
+/* Layout */
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-3);
+}
+
+.page__title {
+  font-size: 2rem;
+  margin-bottom: var(--space-2);
+}
+
+.page__title-en {
+  color: var(--color-text-muted);
+  font-size: 1.25rem;
+  font-weight: 400;
+}
+
+.page__tagline {
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.page__description {
+  margin-bottom: var(--space-4);
+}
+
+.status-panel {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+.status-panel__title {
+  font-size: 1rem;
+  margin-bottom: var(--space-2);
+}
+
+.status-panel__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.status-panel__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-panel__dot--pending {
+  background-color: var(--color-warning);
+}
+
+.status-panel__dot--ok {
+  background-color: var(--color-primary);
+}
+
+.status-panel__dot--error {
+  background-color: var(--color-danger);
+}

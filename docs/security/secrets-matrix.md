@@ -19,7 +19,7 @@ mechanisms — a deliberate double lock, not a single point of failure:
    independent of whether the ESLint rule catches the source-level
    reference.
 
-A CI step (M5-T02) additionally scans the **built** `apps/web/dist` output
+A CI step additionally scans the **built** `apps/web/dist` output
 for any accidentally-leaked secret value or non-public env key as a third,
 defense-in-depth check against the compiled artifact rather than only
 source code.
