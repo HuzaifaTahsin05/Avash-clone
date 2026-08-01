@@ -1,1 +1,41 @@
-export const fetchApi = async (path: string) => fetch(path);
+import { z } from 'zod';
+import { env } from './env';
+
+/** `API_CLIENT_TIMEOUT_MS` (§14) — aborts a hung request instead of a query pending forever. */
+const API_CLIENT_TIMEOUT_MS = 8000;
+
+export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+/**
+ * Typed fetch wrapper (R2/R3/R4/R10): base URL comes only from the public
+ * `VITE_PUBLIC_API_BASE_URL` var, every response is zod-parsed before it is
+ * handed back, and failures are returned as a discriminated result rather
+ * than thrown — callers never see a raw error or stack trace.
+ */
+export async function fetchApi<T>(path: string, schema: z.ZodType<T>): Promise<ApiResult<T>> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_CLIENT_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${env.apiBaseUrl}${path}`, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response?.ok) {
+      return { ok: false, error: `Request failed with status ${response?.status ?? 'unknown'}` };
+    }
+
+    const json = await response.json?.().catch(() => null);
+    const parsed = schema.safeParse(json);
+    if (!parsed?.success) {
+      return { ok: false, error: 'Response did not match the expected shape' };
+    }
+
+    return { ok: true, data: parsed.data };
+  } catch {
+    return { ok: false, error: 'Unable to reach the server' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}

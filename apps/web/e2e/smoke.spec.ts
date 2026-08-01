@@ -8,9 +8,10 @@ test.describe('frontend scaffold smoke', () => {
   });
 
   test('renders the status panel', async ({ page }) => {
+    // M4: the panel now fetches live health data (see e2e/health-integration.spec.ts
+    // for the four connectivity states); this smoke test only proves the panel exists.
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'System status' })).toBeVisible();
-    await expect(page.getByText('API: not connected')).toBeVisible();
   });
 
   test('an unknown path renders the client-side 404 route', async ({ page }) => {

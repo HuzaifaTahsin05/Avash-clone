@@ -10,6 +10,7 @@
 1b. `cp .env.example .env && cp apps/api/.dev.vars.example apps/api/.dev.vars && cp apps/web/.env.example apps/web/.env` — create the three gitignored local env files (see `docs/security/secrets-matrix.md`)
 2. `pnpm --filter web dev` — Vite dev server for the React SPA
 3. `pnpm --filter api dev` — `wrangler dev` for the Hono Worker API
+  - `pnpm dev` — runs both dev servers concurrently via `turbo run dev` (M4-T09); use this instead of 2+3 in separate terminals unless you need one app in isolation
 4. `pnpm lint` — turbo lint across both apps, run before every commit
 5. `pnpm typecheck` — turbo typecheck across both apps, run before every commit
 6. `pnpm build` — turbo build across both apps, run before every commit
@@ -20,8 +21,6 @@
 11. `python ml/training/export_onnx.py` — export + checksum the ONNX artifact into `packages/ml-inference`
 12. `python ml/serving/predict.py` — run a batch inference pass locally (same script GH Actions runs on schedule)
 13. `pnpm tsx scripts/jobs/weather-ingest.ts` — run the weather ingest job locally
-
-> A combined root `pnpm dev` (both apps concurrently) will be added once the backend integration work lands — until then, run the two dev servers in separate terminals.
 
 ## Where things live
 - Read the full picture: `docs/PROJECT_PLAN.md` (this project's single source of truth), then `AGENTS.md` for hard rules.

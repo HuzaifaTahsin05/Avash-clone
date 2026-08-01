@@ -105,3 +105,15 @@ body {
 .status-panel__dot--error {
   background-color: var(--color-danger);
 }
+
+.status-panel__dot--offline {
+  background-color: var(--color-text-muted);
+}
+
+.status-panel__skeleton {
+  display: inline-block;
+  width: 220px;
+  height: 1.6em;
+  border-radius: var(--radius);
+  background-color: var(--color-border);
+}

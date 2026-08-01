@@ -31,6 +31,7 @@ only once the constant is actually wired into the code location listed.
 | `DB_STATEMENT_TIMEOUT_S` | 5 | Supabase API role config | prevents runaway spatial queries | documented |
 | `FRONTEND_BUNDLE_BUDGET_KB` | < 180 KB gzip (shell) | `apps/web/vite.config.ts` bundle analyzer CI check | performance | implemented |
 | `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/wrangler.toml` (`CORS_ALLOWED_ORIGINS`, `CORS_PREVIEW_ORIGIN_SUFFIX` vars), read in `apps/api/src/config/cors.ts` | cross-origin write protection | implemented |
+| `API_CLIENT_TIMEOUT_MS` | 8000 | `apps/web/src/lib/apiClient.ts` | aborts a hung `apps/api` request instead of leaving a query pending indefinitely | implemented |
 
 `CORS_ALLOWED_ORIGINS`'s value in `apps/api/wrangler.toml` is currently
 the placeholder `https://avash.pages.dev` — no real Cloudflare Pages
@@ -39,10 +40,13 @@ project domain has been assigned yet. Update all three `[vars]` blocks in
 real domain exists; nothing else needs to change since the code reads the
 vars, never a hardcoded literal.
 
-That is 20 named rows covering all 22 individual constants from §14
+That is 21 named rows covering all 23 individual constants from §14
 (`MIN_RECALL_TARGET`/`MIN_PRECISION_TARGET` and
 `BREEDING_REPORT_RATE_LIMIT`/etc.'s per-window limits are each two values
-sharing one row, matching how §14 itself pairs them).
+sharing one row, matching how §14 itself pairs them). `API_CLIENT_TIMEOUT_MS`
+was added in Milestone 4 (frontend/backend integration) per R9 — new
+constant, added to both this table and `PROJECT_PLAN.md` §14 in the same
+change that introduced its use in `apiClient.ts`.
 
 ## The rule
 
