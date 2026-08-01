@@ -35,7 +35,7 @@
         "Using a wildcard (*) CORS origin or matching origins with an unbounded regex on write routes",
         "Holding a long-lived direct Postgres connection instead of the Supavisor pooler"
       ],
-      "definitionOfDone": "Route implemented with zod validation on entry, wrapped in withErrorBoundary(), covered by Vitest tests (success, failure, auth, CORS, rate-limit paths); docs/features/*.md updated; STRIDE vectors considered for any write-path change."
+      "definitionOfDone": "Route implemented with zod validation on entry, wrapped in withErrorBoundary(), covered by Playwright tests against a live wrangler dev instance (success, failure, auth, CORS, rate-limit paths); docs/features/*.md updated; STRIDE vectors considered for any write-path change."
     },
     {
       "role": "db-engineer",

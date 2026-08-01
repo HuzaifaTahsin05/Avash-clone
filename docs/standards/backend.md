@@ -29,7 +29,15 @@ Applied in this exact order, on every request:
 2. `security-headers` — applies the full `docs/PROJECT_PLAN.md` §7.4
    header set to every response.
 3. `cors` — strict origin allow-list (`CORS_ALLOWED_ORIGINS`, §14); unlisted
-   origins get no CORS headers back, never a wildcard.
+   origins get no CORS headers back, never a wildcard. The allow-list
+   itself is Worker config, not a source-code literal: `wrangler.toml`'s
+   `CORS_ALLOWED_ORIGINS` (comma-separated exact origins) and
+   `CORS_PREVIEW_ORIGIN_SUFFIX` (bare domain suffix PR-preview
+   subdomains must end in) are read at request time in
+   `apps/api/src/config/cors.ts`. Changing the allowed domain is a
+   `wrangler.toml` edit, not a code change — and because Wrangler does
+   not merge `[vars]` across environments, both vars must be redeclared
+   in `[vars]`, `[env.preview.vars]`, and `[env.production.vars]`.
 4. Route-specific middleware, in this sub-order where applicable:
    `auth` (JWT verification, ADR-009) → `turnstile` (anonymous write
    routes) → `rate-limit` (Upstash sliding window, §7.3).
@@ -87,6 +95,23 @@ the service-role key stored as a GitHub Actions secret (ADR-007). This is
 enforced by review, not by tooling: any PR introducing a route under
 `/api/jobs/*`, or any route whose only caller is a cron trigger, is
 rejected.
+
+## Testing — two `tsconfig`s, one deliberate reason
+
+`apps/api` has `tsconfig.json` (`include: ["src"]`) and a second
+`tsconfig.test.json` (`include: ["src", "test", "playwright.config.ts"]`)
+that additionally types Node's `process` global. This split exists
+because `playwright.config.ts` needs `process.env.CI`, and TypeScript's
+ambient globals apply to an entire compiled program, not per file — if
+`process` were typed in the same `tsconfig.json` used for `src/`, a route
+handler could type-check `process.env.SUPABASE_SERVICE_ROLE_KEY` even
+though the Workers runtime has no such thing; the only correct way to
+read config in `src/` is the typed `Bindings` interface
+(`apps/api/src/types.ts`). `pnpm --filter api typecheck` runs both
+configs (`tsc --noEmit && tsc --noEmit -p tsconfig.test.json`); only the
+first is authoritative for "is this deployable," so a route handler that
+(incorrectly) referenced `process` would still fail the primary check.
+See `docs/standards/testing.md` for what actually runs in `apps/api/test/`.
 
 ## Defense in depth
 

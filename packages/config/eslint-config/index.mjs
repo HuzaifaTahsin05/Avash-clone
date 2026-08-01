@@ -37,6 +37,6 @@ export default [
   },
   noNonPublicEnvUnderWeb,
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/.turbo/**', '**/coverage/**'],
+    ignores: ['**/dist/**', '**/node_modules/**', '**/.turbo/**', '**/coverage/**', '**/.wrangler/**'],
   },
 ];

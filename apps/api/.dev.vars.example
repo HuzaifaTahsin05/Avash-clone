@@ -1,0 +1,44 @@
+# apps/api — local Worker secrets (docs/PROJECT_PLAN.md §7.1)
+#
+# Copy to `apps/api/.dev.vars` and fill in. `.dev.vars` is gitignored;
+# this template is the only tracked copy and must never contain a real
+# value (R2).
+#
+#   cp apps/api/.dev.vars.example apps/api/.dev.vars
+#
+# `wrangler dev` loads .dev.vars automatically and injects each key as a
+# Worker binding, typed by the `Bindings` interface in src/types.ts.
+#
+# This file is LOCAL DEV ONLY. Deployed environments never read it —
+# set those with:
+#   wrangler secret put <NAME> --env preview
+#   wrangler secret put <NAME> --env production
+# and in CI/CD via GitHub Actions secrets. wrangler.toml's [vars] block
+# carries the secret *names* as a commented inventory, never values.
+#
+# Every key below is SERVER-ONLY. None may ever be referenced under
+# apps/web/src — see apps/web/.env.example for the client-side set.
+
+# Supabase service-role key — full bypass of Row Level Security.
+# The single most sensitive credential in this project.
+SUPABASE_SERVICE_ROLE_KEY=
+
+# HS256 secret used to verify Supabase-issued JWTs locally (ADR-009).
+SUPABASE_JWT_SECRET=
+
+# Google Gemini API key — symptom-checker structuring and report
+# validation. The browser never calls Gemini directly (§7.4).
+GEMINI_API_KEY=
+
+# Upstash Redis REST credentials — sliding-window rate limiting (§7.3).
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+
+# Cloudflare Turnstile SECRET key — server-side verification of the
+# token produced by VITE_PUBLIC_TURNSTILE_SITE_KEY's widget.
+TURNSTILE_SECRET_KEY=
+
+# Environment label surfaced by GET /health. Optional locally — the
+# handler falls back to "development" when unset. Deployed environments
+# get this from wrangler.toml's [env.preview] / [env.production] vars.
+ENVIRONMENT=development

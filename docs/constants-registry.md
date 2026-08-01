@@ -30,7 +30,14 @@ only once the constant is actually wired into the code location listed.
 | `ALERT_PROXIMITY_RADIUS_DEFAULT_M` | 2000 (bounds: 100–20,000) | `packages/geo`, `alert_subscriptions` check constraint | `ST_DWithin` default/ceiling | documented |
 | `DB_STATEMENT_TIMEOUT_S` | 5 | Supabase API role config | prevents runaway spatial queries | documented |
 | `FRONTEND_BUNDLE_BUDGET_KB` | < 180 KB gzip (shell) | `apps/web/vite.config.ts` bundle analyzer CI check | performance | implemented |
-| `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/src/middleware/cors.ts` | cross-origin write protection | documented |
+| `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/wrangler.toml` (`CORS_ALLOWED_ORIGINS`, `CORS_PREVIEW_ORIGIN_SUFFIX` vars), read in `apps/api/src/config/cors.ts` | cross-origin write protection | implemented |
+
+`CORS_ALLOWED_ORIGINS`'s value in `apps/api/wrangler.toml` is currently
+the placeholder `https://avash.pages.dev` — no real Cloudflare Pages
+project domain has been assigned yet. Update all three `[vars]` blocks in
+`wrangler.toml` (top-level, `env.preview`, `env.production`) once the
+real domain exists; nothing else needs to change since the code reads the
+vars, never a hardcoded literal.
 
 That is 20 named rows covering all 22 individual constants from §14
 (`MIN_RECALL_TARGET`/`MIN_PRECISION_TARGET` and

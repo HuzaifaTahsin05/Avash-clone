@@ -122,11 +122,30 @@ static frontend/backend scaffold).
 # install workspace dependencies
 pnpm install
 
-# run the frontend (React SPA)
+# create the three local environment files from their tracked templates
+cp .env.example .env                                  # job scripts + ml/
+cp apps/api/.dev.vars.example apps/api/.dev.vars      # Worker secrets
+cp apps/web/.env.example apps/web/.env                # VITE_PUBLIC_* only
+
+# run the frontend (React SPA)          -> http://localhost:5173
 pnpm --filter web dev
 
-# run the backend (Hono Worker API)
+# run the backend (Hono Worker API)     -> http://localhost:8787
 pnpm --filter api dev
+```
+
+Each `.env` / `.dev.vars` file is gitignored; only the `*.example`
+templates are tracked, and they never contain a real value. The scaffold
+runs with them left blank — values are needed once a slice actually calls
+Supabase, Gemini, or Mapbox. See
+[`docs/security/secrets-matrix.md`](docs/security/secrets-matrix.md) for
+what each variable is, which of the three files it belongs in, and how it
+is set in preview/production.
+
+Verify the backend is up:
+
+```bash
+curl http://localhost:8787/health
 ```
 
 See `CLAUDE.md` for the full command reference (lint/typecheck/build/test,

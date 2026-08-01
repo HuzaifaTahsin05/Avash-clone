@@ -1,6 +1,50 @@
 name = "avash-api"
 main = "src/index.ts"
 compatibility_date = "2024-03-20"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
 
 [vars]
-# API keys will be injected here by GitHub Actions or wrangler secrets
+# Non-secret runtime config only. ENVIRONMENT is set per-env below.
+# Real secrets are NEVER stored here (R2) — they are injected via
+# `wrangler secret put <NAME>` locally, or as GitHub Actions secrets
+# in CI/CD deploy workflows (see docs/security/secrets-matrix.md).
+#
+# Required secret inventory (names only — values are never committed):
+#   SUPABASE_SERVICE_ROLE_KEY
+#   SUPABASE_JWT_SECRET
+#   GEMINI_API_KEY
+#   UPSTASH_REDIS_REST_URL
+#   UPSTASH_REDIS_REST_TOKEN
+#   TURNSTILE_SECRET_KEY
+#
+# CORS_ALLOWED_ORIGINS / CORS_PREVIEW_ORIGIN_SUFFIX (§14, docs/constants-registry.md)
+# are deploy-time config, not secrets — they're the public Cloudflare
+# Pages domain. TBD: placeholder "avash.pages.dev" until the real
+# project domain is assigned; update here (all three [vars] blocks) and
+# nowhere else — apps/api/src/config/cors.ts reads these, never a
+# hardcoded literal.
+CORS_ALLOWED_ORIGINS = "https://avash.pages.dev"
+CORS_PREVIEW_ORIGIN_SUFFIX = "avash.pages.dev"
+
+# Wrangler does not merge [vars] across environments — each [env.*.vars]
+# block below must redeclare every var it needs, or that var is simply
+# absent when running under that environment.
+
+[env.preview]
+name = "avash-api-preview"
+
+  [env.preview.vars]
+  ENVIRONMENT = "preview"
+  CORS_ALLOWED_ORIGINS = "https://avash.pages.dev"
+  CORS_PREVIEW_ORIGIN_SUFFIX = "avash.pages.dev"
+
+[env.production]
+name = "avash-api-production"
+
+  [env.production.vars]
+  ENVIRONMENT = "production"
+  CORS_ALLOWED_ORIGINS = "https://avash.pages.dev"
+  CORS_PREVIEW_ORIGIN_SUFFIX = "avash.pages.dev"

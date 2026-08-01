@@ -43,7 +43,7 @@ has not yet been reached.
 |---|---|---|
 | [`standards/frontend.md`](standards/frontend.md) | Definitive React/Vite conventions: routing, state, optional-chaining checklist, bundle budget, accessibility | Existing |
 | [`standards/backend.md`](standards/backend.md) | Hono routing conventions, middleware order, error boundary pattern, Supavisor pooling, the R7 jobs-endpoint ban | Existing |
-| [`standards/testing.md`](standards/testing.md) | Three-layer testing strategy: Vitest, Playwright, three-pass manual protocol | Existing |
+| [`standards/testing.md`](standards/testing.md) | Two-layer testing strategy: Playwright (packages/*, apps/api, apps/web e2e), three-pass manual protocol | Existing |
 | [`standards/git-workflow.md`](standards/git-workflow.md) | Branch naming, commit conventions, vertical-slice-per-PR rule, merge gates | Existing |
 
 ## `docs/data-schema/`

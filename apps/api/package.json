@@ -6,6 +6,23 @@
   "scripts": {
     "dev": "wrangler dev",
     "build": "wrangler deploy --dry-run",
-    "test": "echo \"api tests passed\""
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "hono": "^4.5.11",
+    "zod": "^3.23.8",
+    "@avash/logger": "workspace:*",
+    "@avash/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@avash/eslint-config": "workspace:*",
+    "@cloudflare/workers-types": "^4.20240815.0",
+    "@playwright/test": "^1.46.1",
+    "eslint": "^9.9.0",
+    "typescript": "^5.5.4",
+    "wrangler": "^3.72.2"
   }
 }
