@@ -8,14 +8,13 @@
 
 ## 0. Ground Rules (Read First)
 
-1. **Vertical slices only.** One feature, fully working end-to-end (DB → API → UI → docs → 3 manual tests), before starting the next. See §14 for slice order.
+1. **Vertical slices only.** One feature, fully working end-to-end (DB → API → UI → docs → 3 manual tests → automated tests), before starting the next. See §14 for slice order.
 2. **Secrets never touch the client.** `apps/web` is a static SPA shipped to the browser — it must never import, bundle, or reference a non-`VITE_PUBLIC_`-prefixed secret. Anything touching Gemini, Supabase service role, OpenWeatherMap, Upstash, Turnstile secret, or VAPID private keys lives in `apps/api` (Cloudflare Worker) or in GitHub Actions job scripts — never in `apps/web`.
 3. **One types source.** All shared TS interfaces/DTOs/zod schemas live in `packages/types`. No inline duplicate interfaces anywhere else.
 4. **Optional chaining is mandatory** on every external/untrusted access point: `fetch()` responses, Supabase query results, `JSON.parse`, `localStorage`/`IndexedDB`, browser Geolocation/Notification/Push APIs, third-party SDK callbacks (Leaflet/Mapbox events), Gemini responses. PR reviewers must grep for raw `.property` access on any of these before approval.
-5. **No test scripts for frontend.** Every frontend feature gets 3 manual test passes (§10) documented in the PR description.
-6. **Docs are code.** A PR that changes behavior without updating `docs/` is incomplete, not "done later."
-7. **Engineering correction from brief:** true per-request ML inference *inside* a Cloudflare Worker at the free tier is not realistic (10ms CPU-time cap on the free plan applies to actual compute, not I/O wait — WASM tensor math is compute-bound and will blow the cap across many regions). §5.3 documents the honest, working architecture that still satisfies the "zero-cost, edge, near-0ms perceived latency" goal.
-8. **No SSR.** `apps/web` is a client-rendered SPA. Public risk-map SEO is a deliberately accepted trade-off (ADR-008) — do not attempt to bolt on server rendering piecemeal; if it's ever needed, it gets its own ADR and migration plan.
+5. **Docs are code.** A PR that changes behavior without updating `docs/` is incomplete, not "done later."
+6. **Engineering correction from brief:** true per-request ML inference *inside* a Cloudflare Worker at the free tier is not realistic (10ms CPU-time cap on the free plan applies to actual compute, not I/O wait — WASM tensor math is compute-bound and will blow the cap across many regions). §5.3 documents the honest, working architecture that still satisfies the "zero-cost, edge, near-0ms perceived latency" goal.
+7. **No SSR.** `apps/web` is a client-rendered SPA. Public risk-map SEO is a deliberately accepted trade-off (ADR-008) — do not attempt to bolt on server rendering piecemeal; if it's ever needed, it gets its own ADR and migration plan.
 
 ---
 
@@ -564,7 +563,7 @@ Rule: any variable without the `VITE_PUBLIC_` prefix must never be imported into
 
 ---
 
-## 10. Testing Protocol (Manual, No Scripts — Frontend)
+## 10. Testing Protocol
 
 Every feature PR must include all three passes, documented inline in the PR description:
 
@@ -578,6 +577,8 @@ Every feature PR must include all three passes, documented inline in the PR desc
 1. Load form with network throttled/offline → form should show a clear offline notice, not crash.
 2. Submit a valid report with geolocation granted → appears in "My Reports" as pending, moderator sees it in queue.
 3. Submit 10 reports in 30 seconds from the same IP → 6th onward rejected with generic "Too many requests" toast; submit `<script>alert(1)</script>` as description → stored as inert text, never executed; call `POST https://<api-domain>/api/reports/breeding-site` directly with `lat: 999` → rejected 400 by zod schema before hitting the DB; call it from an unregistered `Origin` header → rejected by CORS before it reaches the handler.
+
+Use `playwright` for automated regression tests, but **manual testing is mandatory** for every PR touching a write path or LLM-touching feature. The three-pass checklist must be filled out in the PR description and signed off by the reviewer.
 
 ---
 
@@ -599,7 +600,7 @@ Every feature doc in `docs/` follows this template — no exceptions:
 **Technical Detail:** data flow, tables touched, external calls, edge cases handled.
 **Critical Constants:** table of every static threshold/limit used, with file location.
 **Security Considerations:** threats enumerated + mitigation (mirror §7.2 for that feature).
-**Manual Test Log:** last 3-pass test date + result summary.
+**Manual Test Log:** last pass test date + result summary.
 ```
 
 Docs are updated **in the same PR** as the code change — a PR touching `blood_inventory` logic without touching `docs/data-schema/postgis-schema.md` (if schema changed) or the feature doc is rejected in review.
@@ -621,7 +622,7 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 9. **Security hardening pass:** re-run the STRIDE table (§7.2) against the *actual* shipped code, not the plan, close gaps.
 10. **On-device ONNX inference (PWA bonus feature):** ship last, since it depends on a stable, versioned model artifact from slice 3.
 
-**Git conventions:** branch `feat/<slice-name>`, Conventional Commits (`feat:`, `fix:`, `docs:`, `sec:`), PR template requires: linked slice number, updated docs checklist, 3-pass manual test log, and a filled-in "security vectors considered" section for any write-path change.
+**Git conventions:** branch `feat/<slice-name>`, Conventional Commits (`feat:`, `fix:`, `docs:`, `sec:`), PR template requires: linked slice number, updated docs checklist, test log, and a filled-in "security vectors considered" section for any write-path change.
 
 **Original 10-week phase mapping** (unchanged from the proposal): Weeks 1–2 requirements/data, Weeks 3–4 schema+model+wireframes, Weeks 5–7 slices 1–7 above, Week 8 slice 9 (hardening), Week 9 deployment, Week 10 slice 8/10 polish + handover.
 
@@ -664,7 +665,7 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 ```md
 # AGENTS.md — Instructions for AI Coding Agents
 
-You are working inside Avash (আভাস). The file `docs/BLUEPRINT.md` (this document)
+You are working inside Avash (আভাস). The file `docs/PROJECT_PLAN.md` (this document)
 is the single source of truth. If your plan conflicts with it, stop and flag
 the conflict instead of proceeding.
 
@@ -674,7 +675,7 @@ no server. Anything that must stay secret or server-side belongs in
 `scripts/jobs/` or `ml/serving/`.
 
 ## ALWAYS
-- Implement end-to-end (DB → apps/api → apps/web → docs → 3 manual tests) —
+- Implement end-to-end (DB → apps/api → apps/web → docs → tests) —
   one vertical slice at a time, per §13.
 - Keep sensitive data server-side only (§7.1). Before finishing any task
   touching secrets, grep `apps/web/src` to confirm no non-`VITE_PUBLIC_`
@@ -688,8 +689,7 @@ no server. Anything that must stay secret or server-side belongs in
   detail, critical constants table, security considerations.
 - Write generic, user-friendly error/toast messages. Log full detail
   server-side with a correlation ID instead.
-- Run the 3 manual test passes (§10) and report the results, even though
-  there are no automated frontend test scripts.
+- Run the test passes (§10) and report the results.
 - Match existing patterns in the file/module you are editing.
 - Keep responses and working context lean — do not re-read files you already
   have full context on; summarize instead of re-pasting large blocks.
@@ -739,11 +739,11 @@ writing code, per §7.2's format. Add it to `docs/security/threat-model.md`.
 - `pnpm tsx scripts/jobs/weather-ingest.ts` — run the weather ingest job locally
 
 ## Where things live
-- Read the full picture: `docs/BLUEPRINT.md` (this file), then `AGENTS.md` for hard rules.
+- Read the full picture: `docs/PROJECT_PLAN.md` (this file), then `AGENTS.md` for hard rules.
 - Types: `packages/types` only.
 - Anything secret-touching: `apps/api/src/routes/*`, or `scripts/jobs/*` / `ml/serving/*` for cron work.
   `apps/web` never touches a secret — if you find yourself about to, stop.
-- Constants: never hardcode — check §14 of the blueprint first.
+- Constants: never hardcode — check §14 of `docs/PROJECT_PLAN.md` first.
 
 ## Context hygiene
 Keep working context under ~40% capacity. Summarize prior findings instead
@@ -765,10 +765,10 @@ Covers `apps/web` (React SPA), `apps/api` (Hono/Cloudflare Workers),
 `packages/*`, GitHub Actions job scripts (`scripts/jobs/`, `ml/serving/`),
 and the Supabase schema in `packages/db`. The `ml/training` pipeline is out
 of scope for runtime security, but its output (the ONNX artifact) is
-checksum-verified before every inference run (§7.2 of `docs/BLUEPRINT.md`).
+checksum-verified before every inference run (§7.2 of `docs/PROJECT_PLAN.md`).
 
 ## Controls in place
-- Row Level Security enabled on every Supabase table (§4.1 of the blueprint).
+- Row Level Security enabled on every Supabase table (§4.1 of `docs/PROJECT_PLAN.md`).
 - Strict backend/frontend separation: `apps/web` ships zero server secrets;
   all privileged logic lives in `apps/api` or scheduled job scripts.
 - Rate limiting (Upstash) on every write and LLM-touching `apps/api` route.
@@ -783,7 +783,7 @@ checksum-verified before every inference run (§7.2 of `docs/BLUEPRINT.md`).
 - Background jobs run with no public HTTP trigger surface (ADR-007).
 
 ## Full threat model
-See `docs/security/threat-model.md`, kept in sync with §7.2 of the blueprint.
+See `docs/security/threat-model.md`, kept in sync with §7.2 of `docs/PROJECT_PLAN.md`.
 ```
 
 ### `CONTRIBUTING.md`
@@ -791,7 +791,7 @@ See `docs/security/threat-model.md`, kept in sync with §7.2 of the blueprint.
 ```md
 # Contributing
 
-1. Read `docs/BLUEPRINT.md` fully before your first PR — it is the source
+1. Read `docs/PROJECT_PLAN.md` fully before your first PR — it is the source
    of truth for architecture, schema, constants, and security rules.
 2. One vertical slice per PR (§13). No partial DB-only or UI-only PRs for
    a new feature unless explicitly scoped as a foundation slice.
@@ -803,9 +803,9 @@ See `docs/security/threat-model.md`, kept in sync with §7.2 of the blueprint.
 5. Before opening a PR: `pnpm lint && pnpm typecheck && pnpm build` must
    pass locally for both `apps/web` and `apps/api`.
 6. PR description must include:
-   - Linked slice/section of the blueprint
+   - Linked slice/section of `docs/PROJECT_PLAN.md`
    - Updated docs (per §12 template)
-   - 3-pass manual test log (§10)
+   - test log (§10)
    - Security vectors considered (§7.2 format), for any write-path or
      auth-adjacent change
 7. Do not modify a test or a manual-test description to force a broken

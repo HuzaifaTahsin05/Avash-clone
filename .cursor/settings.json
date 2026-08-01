@@ -1,4 +1,11 @@
 {
+  "project": "avash",
+  "sourceOfTruth": "docs/PROJECT_PLAN.md",
+  "rules": [
+    "R1: apps/web is a static SPA (React 18 + Vite). No SSR, no Next.js patterns.",
+    "R2: Secrets never touch the client. Anything without a VITE_PUBLIC_ prefix must never be referenced under apps/web/src; it belongs in apps/api or a GitHub Actions job script.",
+    "R3: One types source. Every shared interface/DTO/zod schema lives in packages/types — never redefined inline in either app."
+  ],
   "mcpServers": {
     "supabase": {
       "command": "supabase",
