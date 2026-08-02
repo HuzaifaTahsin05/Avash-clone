@@ -127,11 +127,14 @@ cp .env.example .env                                  # job scripts + ml/
 cp apps/api/.dev.vars.example apps/api/.dev.vars      # Worker secrets
 cp apps/web/.env.example apps/web/.env                # VITE_PUBLIC_* only
 
-# run the frontend (React SPA)          -> http://localhost:5173
-pnpm --filter web dev
+# run both apps concurrently (M4-T09, via turbo)
+pnpm dev
+# -> web:  http://localhost:5173
+# -> api:  http://localhost:8787
 
-# run the backend (Hono Worker API)     -> http://localhost:8787
-pnpm --filter api dev
+# or run one app in isolation:
+pnpm --filter web dev   # Vite dev server for the React SPA
+pnpm --filter api dev   # wrangler dev for the Hono Worker API
 ```
 
 Each `.env` / `.dev.vars` file is gitignored; only the `*.example`

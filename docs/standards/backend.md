@@ -38,6 +38,17 @@ Applied in this exact order, on every request:
    `wrangler.toml` edit, not a code change — and because Wrangler does
    not merge `[vars]` across environments, both vars must be redeclared
    in `[vars]`, `[env.preview.vars]`, and `[env.production.vars]`.
+
+   **Local development origin (M4-T07):** the Vite dev server
+   (`http://localhost:5173`) needs a `CORS_ALLOWED_ORIGINS` entry to reach
+   a locally running Worker, but `localhost` must never appear in
+   `wrangler.toml` — that file's `[vars]`/`[env.*.vars]` blocks are what
+   actually ships to preview and production. Instead, `apps/api/.dev.vars`
+   (gitignored, templated by `.dev.vars.example`) sets a local-only
+   `CORS_ALLOWED_ORIGINS` value that *includes* `http://localhost:5173`.
+   `wrangler dev` reads `.dev.vars` in preference to `wrangler.toml`'s
+   top-level `[vars]`, so the override applies only to `wrangler dev` and
+   never touches a deployed environment.
 4. Route-specific middleware, in this sub-order where applicable:
    `auth` (JWT verification, ADR-009) → `turnstile` (anonymous write
    routes) → `rate-limit` (Upstash sliding window, §7.3).
