@@ -36,8 +36,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/types
       '@hono/node-server':
-        specifier: ^1.12.2
-        version: 1.19.17(hono@4.12.33)
+        specifier: ^2.0.12
+        version: 2.0.12(hono@4.12.33)
       hono:
         specifier: ^4.5.11
         version: 4.12.33
@@ -749,9 +749,9 @@ packages:
     resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
     engines: {node: '>=14'}
 
-  '@hono/node-server@1.19.17':
-    resolution: {integrity: sha512-dSneS5qhiauZWGDCeK4o695Xd9nUNjviSZCMQrj10eetr8Uln1ucn6bbphOM6UynAMMtNIzZNSpL9vnASJwrPQ==}
-    engines: {node: '>=18.14.1'}
+  '@hono/node-server@2.0.12':
+    resolution: {integrity: sha512-eWpQYr67tqJLeaSUl0Q+TquuYfUdTibpOJlUMV2FfUP7+KqCC5TufnwnlXL6mobZBJbGAYRd7ZvEBDCbLInjhg==}
+    engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
 
@@ -2370,7 +2370,7 @@ snapshots:
 
   '@fastify/busboy@2.1.1': {}
 
-  '@hono/node-server@1.19.17(hono@4.12.33)':
+  '@hono/node-server@2.0.12(hono@4.12.33)':
     dependencies:
       hono: 4.12.33
 
