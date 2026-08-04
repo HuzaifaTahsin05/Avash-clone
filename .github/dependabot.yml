@@ -1,0 +1,151 @@
+version: 2
+
+updates:
+  # --- npm: root + every workspace directory (docs/PROJECT_PLAN.md §7.4) ---
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/apps/web"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/apps/api"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/packages/config"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/packages/db"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/packages/geo"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/packages/logger"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/packages/ml-inference"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/packages/security"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/packages/types"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  - package-ecosystem: npm
+    directory: "/packages/ui"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, npm]
+
+  # --- pip: ml/ (exact `==` pins, so bumps arrive as reviewable PRs — see
+  # the header comment in ml/requirements.txt) ---
+  - package-ecosystem: pip
+    directory: "/ml"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, pip, ml]
+
+  # --- github-actions: workflow action versions ---
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, github-actions]
+
+  # --- docker: base image pins (ADR-011 for ml, ADR-012 for the two apps).
+  # Each directory entry only watches the Dockerfile(s) in that exact path
+  # — Dependabot's docker ecosystem has no recursive/glob directory mode. ---
+  - package-ecosystem: docker
+    directory: "/docker"
+    schedule:
+      interval: weekly
+    labels: [dependencies, docker]
+
+  - package-ecosystem: docker
+    directory: "/apps/web"
+    schedule:
+      interval: weekly
+    labels: [dependencies, docker]
+
+  - package-ecosystem: docker
+    directory: "/apps/api"
+    schedule:
+      interval: weekly
+    labels: [dependencies, docker]
+
+  # NOTE: compose.yaml's `postgis/postgis:15-3.4` pin is intentionally NOT
+  # watched by Dependabot. That tag tracks parity with whatever Postgres/
+  # PostGIS version Supabase's managed platform runs (docs/docker.md §
+  # "Parity with Supabase"), not "the newest tag" — bumping it is a
+  # deliberate decision made after checking Supabase's version, not
+  # something that should arrive as an automated PR.

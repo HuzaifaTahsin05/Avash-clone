@@ -1,0 +1,85 @@
+name: deploy-web
+
+# Builds apps/web and publishes it to Cloudflare Pages: a preview
+# deployment on every PR, production on merge to main (docs/PROJECT_PLAN.md
+# §11). Only VITE_PUBLIC_* variables are injected at build time — none of
+# them are secret by definition (§7.1, R2).
+#
+# This workflow must be safe when Cloudflare is not yet configured: the
+# deploy step is guarded on CLOUDFLARE_API_TOKEN being present and no-ops
+# cleanly otherwise, so a fork PR or an early-stage repo does not fail CI
+# for lacking a credential it was never given.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: deploy-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build apps/web
+        env:
+          VITE_PUBLIC_API_BASE_URL: ${{ vars.VITE_PUBLIC_API_BASE_URL }}
+          VITE_PUBLIC_SUPABASE_URL: ${{ vars.VITE_PUBLIC_SUPABASE_URL }}
+          VITE_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.VITE_PUBLIC_SUPABASE_ANON_KEY }}
+          VITE_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.VITE_PUBLIC_TURNSTILE_SITE_KEY }}
+          VITE_PUBLIC_VAPID_PUBLIC_KEY: ${{ vars.VITE_PUBLIC_VAPID_PUBLIC_KEY }}
+        run: pnpm --filter web build
+
+      - name: Check Cloudflare credentials
+        id: cf-check
+        # Secrets are read through `env:`, never interpolated as `${{ }}`
+        # into the script body. A `${{ secrets.X }}` inside `run:` is
+        # substituted into the shell script text before execution, which
+        # writes the plaintext value into a script file on the runner and
+        # lets a value containing shell metacharacters alter the command.
+        # Only the emptiness of the variable is ever tested here — the
+        # value itself is never echoed or expanded.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set — skipping deploy. See docs/ci-cd.md."
+          fi
+
+      - name: Deploy preview (PR)
+        if: steps.cf-check.outputs.configured == 'true' && github.event_name == 'pull_request'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/web/dist --project-name=avash --branch=${{ github.head_ref }}
+
+      - name: Deploy production (main)
+        if: steps.cf-check.outputs.configured == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/web/dist --project-name=avash --branch=main

@@ -44,7 +44,13 @@ checksum-verified before every inference run (§7.2 of `docs/PROJECT_PLAN.md`).
 - Cloudflare Turnstile on all anonymous write endpoints.
 - CORS allow-list restricted to known `apps/web` origins — no wildcard.
 - CodeQL SAST on every PR + weekly scheduled scan.
-- Dependabot for npm and pip ecosystems.
+- Dependabot for npm, pip, GitHub Actions, and Docker base-image ecosystems.
+- Container images exact-pinned, built non-root, and scanned in CI (Trivy,
+  high/critical fails the build); `.dockerignore` keeps `.env` / `.dev.vars`
+  out of every build context. The published app images (ADR-012) carry no
+  secret: `apps/web` takes only `VITE_PUBLIC_*` build args (public by
+  definition), and `apps/api` reads every secret from the runtime
+  environment, never from a build arg or a baked file.
 - ESLint boundary rule + Vite's default env-inlining restriction as a double
   lock against secret leakage into the client bundle.
 - Structured-output constraints and input sanitization on all Gemini calls

@@ -1,0 +1,136 @@
+# Avash — container stack (ADR-011 for infrastructure, ADR-012 for the apps).
+#
+# Infrastructure (below): the two things that are painful to install and
+# easy to get subtly wrong per-machine — a Postgres/PostGIS database that
+# matches Supabase, and the Python runtime for `ml/`.
+#
+# The apps: `web` and `api` services, behind the `apps` profile, land with
+# the app-container-images work — each builds from its own
+# `apps/*/Dockerfile` (ADR-012). They are a portability artifact; production
+# still ships via Cloudflare Pages and `wrangler deploy`, and `pnpm dev`
+# remains the normal way to develop. See `docs/docker.md`.
+#
+#   docker compose up -d db                  # start the database
+#   docker compose --profile ml build ml     # build the ML image
+#   docker compose --profile ml run --rm ml python ml/training/train.py
+#   docker compose --profile apps up -d      # the two app images (once they exist)
+#
+# Values below interpolate from the repo-root `.env` (Compose loads it
+# automatically). Every one has a local-only default, so the database
+# starts on a fresh clone with no `.env` present.
+
+name: avash
+
+services:
+  # Postgres 15 + PostGIS 3.4 — parity with Supabase's managed Postgres.
+  # Pinned via POSTGIS_LOCAL_IMAGE (docs/PROJECT_PLAN.md §14).
+  db:
+    image: postgis/postgis:15-3.4
+    container_name: avash-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      # Local-only throwaway credential. This database is bound to
+      # localhost, holds no production data, and is never reachable from a
+      # deployed environment. Real Supabase credentials live in `.env` /
+      # GitHub Actions secrets and never appear here (docs/PROJECT_PLAN.md §7.1).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-avash}
+    ports:
+      # 54322, not 5432 — leaves a host-installed Postgres alone and
+      # matches the Supabase CLI's local port convention.
+      - "127.0.0.1:${POSTGRES_PORT:-54322}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # Runs once, on first initialization of an empty data volume.
+      - ./docker/postgis/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-avash}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    shm_size: 256mb
+    restart: unless-stopped
+
+  # Offline ML pipeline (ADR-002) — training, evaluation, ONNX export, and
+  # the same batch inference pass `cron-batch-predict.yml` runs. Batch job,
+  # not a server: it has no ports and exits when its command finishes.
+  # Behind a profile so `docker compose up` starts only the database.
+  ml:
+    profiles: ["ml"]
+    build:
+      context: .
+      dockerfile: docker/ml.Dockerfile
+    image: avash-ml:local
+    working_dir: /app
+    environment:
+      # Server-only values, read from the repo-root `.env` (§7.1). Empty
+      # defaults keep the image usable for training/export, which need no
+      # Supabase connection at all.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+    volumes:
+      # Source is mounted, not baked, so an edit is picked up without a
+      # rebuild. Rebuild only when requirements.txt changes.
+      - ./ml:/app/ml
+      # export_onnx.py writes the versioned model artifact here.
+      - ./packages/ml-inference:/app/packages/ml-inference
+    command:
+      - python
+      - -c
+      - "print('avash-ml ready. Pass a command, e.g. docker compose --profile ml run --rm ml python ml/training/train.py')"
+
+  # apps/web — nginx serving the Vite build (ADR-012). Behind the `apps`
+  # profile so a bare `docker compose up` still starts only the database.
+  web:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Compiled into the bundle AND into the served CSP. Must be the
+        # origin a browser can actually reach the api container on.
+        VITE_PUBLIC_API_BASE_URL: ${VITE_PUBLIC_API_BASE_URL:-http://localhost:8787}
+    image: avash-web:local
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # apps/api — the same Hono app on Node (ADR-012). Cloudflare Workers is
+  # still the deploy target; this is a portability artifact.
+  api:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: avash-api:local
+    ports:
+      - "127.0.0.1:${API_PORT:-8787}:8787"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # Must include the origin the web container is served from, or every
+      # browser request from it is rejected by the CORS middleware.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080}
+      CORS_PREVIEW_ORIGIN_SUFFIX: ${CORS_PREVIEW_ORIGIN_SUFFIX:-}
+      # Server-only secrets: runtime-injected from the repo-root .env,
+      # never build args, never baked into a layer (§7.1).
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
+      UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  db-data:
+    name: avash-db-data

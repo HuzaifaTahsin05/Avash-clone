@@ -1,7 +1,12 @@
 node_modules
 dist
+dist-node
 .turbo
 *.log
+
+# pnpm content-addressable store, when it lands inside the repo instead of
+# the global location (e.g. a container with no writable global XDG dir).
+.pnpm-store
 
 # Local environment files — NEVER commit real values (R2, §7.1).
 # Only the committed *.example templates are tracked.
@@ -21,3 +26,4 @@ dist
 test-results/
 playwright-report/
 playwright/.cache/
+.secrets

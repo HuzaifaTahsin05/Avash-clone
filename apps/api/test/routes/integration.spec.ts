@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test';
 import { healthResponseSchema } from '@avash/types';
 
 /**
- * M4-T10 — asserts the exact contract `apps/web`'s apiClient depends on:
- * the health body matches the shared `packages/types` schema field-for-field,
- * and a CORS preflight succeeds from an allowed origin / fails from a
- * disallowed one, in both directions.
+ * Asserts the exact contract `apps/web`'s apiClient depends on: the health
+ * body matches the shared `packages/types` schema field-for-field, and a
+ * CORS preflight succeeds from an allowed origin / fails from a disallowed
+ * one, in both directions.
  */
 test.describe('health response contract (shared with apps/web)', () => {
   test('body parses against the shared schema with exactly the expected keys', async ({

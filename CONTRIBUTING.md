@@ -23,6 +23,11 @@ without breaking that discipline.
    below.
 7. Do not modify a test, a lint rule, or a manual-test description to force a
    broken feature to "pass."
+8. Both apps ship container images (ADR-012), but Cloudflare Pages /
+   `wrangler deploy` remains how production ships — never wire an image
+   into a deploy workflow. If your change touches an `apps/api` route,
+   remember it must work on **both** runtimes (workerd and Node); CI runs
+   the API suite against each. See `docs/docker.md`.
 
 ## Terminology
 
@@ -89,6 +94,53 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 All four must pass locally before you open a PR. CI (`ci.yml`) re-runs this
 same sequence plus the Playwright end-to-end stage — a local pass does not
 replace a green CI run, but a local failure means CI will fail too.
+
+**Docker is not required for any of it.** The gate above, `pnpm dev`, and
+both apps run entirely on the host.
+
+## Local infrastructure (optional)
+
+Two things are containerized because they are painful to install by hand
+and easy to get subtly wrong per-machine (ADR-011, full runbook in
+`docs/docker.md`):
+
+```bash
+pnpm docker:db          # Postgres 15 + PostGIS on 127.0.0.1:54322
+pnpm docker:db:nuke     # wipe the volume for a guaranteed-clean reset
+pnpm docker:ml:build && pnpm docker:ml python ml/training/train.py
+```
+
+Use the database container for anything touching migrations, RLS policies,
+or spatial queries — it beats pointing a destructive `db:reset` at a shared
+Supabase project, and CI runs the same image. Use the ML image for anything
+under `ml/`: it installs the same pinned `ml/requirements.txt` the scheduled
+job does, so a locally exported ONNX artifact is the one the schedule would
+have produced.
+
+A hosted Supabase project and a host Python install are equally valid
+substitutes for both.
+
+## App images (ADR-012)
+
+```bash
+pnpm docker:apps:build   # build avash-web:local and avash-api:local
+pnpm docker:apps         # run both: web on :8080, api on :8787
+pnpm docker:apps:down    # stop them
+```
+
+These exist for portability and handover — running the stack without a
+Node toolchain or a Cloudflare account. They are **not** how production
+deploys. Two things to keep in mind when you touch either app:
+
+- **`apps/web`'s image is environment-specific.** Vite inlines
+  `VITE_PUBLIC_*` at build time, so the API base URL is a build argument
+  and a different backend means a different image. Only `VITE_PUBLIC_*`
+  values may ever be build args — build args live in image history.
+- **`apps/api` runs on two runtimes.** The image serves the same Hono app
+  through `@hono/node-server`; production runs workerd. CI runs the API
+  Playwright suite against both. A route reaching for a Cloudflare-only
+  API needs a Node path in the adapter or an explicit Worker-only marker
+  on its spec — never a silent divergence.
 
 ## PR template body
 

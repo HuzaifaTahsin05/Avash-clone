@@ -8,7 +8,7 @@ test.describe('frontend scaffold smoke', () => {
   });
 
   test('renders the status panel', async ({ page }) => {
-    // M4: the panel now fetches live health data (see e2e/health-integration.spec.ts
+    // The panel fetches live health data (see e2e/health-integration.spec.ts
     // for the four connectivity states); this smoke test only proves the panel exists.
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'System status' })).toBeVisible();

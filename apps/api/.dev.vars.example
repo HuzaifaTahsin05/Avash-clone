@@ -43,7 +43,7 @@ TURNSTILE_SECRET_KEY=
 # get this from wrangler.toml's [env.preview] / [env.production] vars.
 ENVIRONMENT=development
 
-# Local-dev-only CORS allow-list override (M4-T07). `wrangler dev` reads
+# Local-dev-only CORS allow-list override. `wrangler dev` reads
 # .dev.vars values in preference to wrangler.toml's top-level [vars], so
 # appending the Vite dev server origin here lets the browser at
 # http://localhost:5173 call the local Worker — without ever touching

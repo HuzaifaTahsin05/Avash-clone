@@ -35,7 +35,7 @@ reference; this skill is a condensed, task-time checklist.
 ## Optional-chaining checklist (R4) — check every one before finishing a task
 
 `fetch()`/`apiClient` JSON, `localStorage.getItem`, `navigator.geolocation`,
-`navigator.serviceWorker`/Push API, `Notification` API, Leaflet/Mapbox event
+`navigator.serviceWorker`/Push API, `Notification` API, Leaflet event
 payloads, Gemini responses (already validated by `apps/api`, but treat as
 untrusted at the boundary), `useParams()`/`useSearchParams()`. Grep for raw
 `.property` access on each before calling a task done — find every

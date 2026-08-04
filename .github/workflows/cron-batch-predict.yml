@@ -1,0 +1,70 @@
+name: cron-batch-predict
+
+# Runs ml/serving/predict.py on a schedule (BATCH_PREDICT_CADENCE = every
+# 24h, docs/PROJECT_PLAN.md §14). Batch inference only (ADR-002) — never
+# per-request Worker inference, and connects directly to Supabase, never
+# through an apps/api HTTP endpoint (ADR-007). The script is still an
+# empty stub and the database schema does not exist yet, so this run
+# no-ops cleanly with a clear message rather than failing.
+#
+# The stub guard runs BEFORE Python setup and the dependency install, so a
+# no-op run costs seconds of billed time rather than minutes — see
+# docs/ci-cd.md § Pausing and resuming scheduled runs.
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cron-batch-predict
+  cancel-in-progress: false
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — job script not yet implemented
+        id: guard
+        run: |
+          if [ ! -s ml/serving/predict.py ]; then
+            echo "::notice::ml/serving/predict.py is an empty stub — this job ships with the ML pipeline slice (docs/PROJECT_PLAN.md §13). Exiting cleanly."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ML_PYTHON_IMAGE (docs/PROJECT_PLAN.md §14) pins the same 3.11 the
+      # local container uses, so a scheduled run and a local run resolve
+      # the same dependency tree.
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.ready == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.guard.outputs.ready == 'true'
+        run: pip install -r ml/requirements.txt
+
+      - name: Run batch prediction
+        if: steps.guard.outputs.ready == 'true'
+        # Secrets arrive as environment variables and are read by the
+        # script directly — never interpolated as `${{ }}` into the script
+        # body. Any value sourced from `secrets.*` is registered as a log
+        # mask automatically, so an explicit `::add-mask::` echo adds
+        # nothing and is actively harmful for a multi-line credential
+        # (a VAPID private key in PEM form is exactly that): echoing it
+        # registers only the first line as a mask and prints the rest in
+        # the clear.
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+        run: python ml/serving/predict.py

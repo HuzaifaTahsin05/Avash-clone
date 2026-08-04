@@ -1,0 +1,42 @@
+# Offline ML pipeline dependencies (docs/PROJECT_PLAN.md §5).
+#
+# This is the single dependency inventory for `ml/` — the Docker image
+# (`docker/ml.Dockerfile`) and the scheduled Actions jobs
+# (`cron-batch-predict.yml`) both install from this file, so a local run
+# and a scheduled run resolve the same tree. Python 3.11.
+#
+# Exact `==` pins, never a range: a batch job that silently picks up a new
+# LightGBM minor version between two scheduled runs would change
+# predictions with no code change to point at. Dependabot proposes bumps
+# on a schedule (`.github/dependabot.yml`, `pip` ecosystem) so upgrades
+# arrive as reviewable PRs instead of drift.
+#
+# These are the pins the pipeline starts from. The ML slice
+# (docs/PROJECT_PLAN.md §13, slice 3) is what first exercises them
+# end-to-end — expect this file to be corrected in that slice as the real
+# training code lands, and treat a build failure here as "the pin was
+# wrong," not "the container approach was wrong."
+
+# Data handling
+numpy==1.26.4
+pandas==2.2.2
+
+# Model + training (§5.2)
+scikit-learn==1.5.1
+lightgbm==4.6.0
+
+# ONNX export + inference (§5.3, ADR-002)
+onnx==1.21.0
+onnxruntime==1.19.2
+skl2onnx==1.17.0
+onnxmltools==1.12.0
+
+# Explainability (model card, §5.2)
+shap==0.46.0
+
+# Batch serving — writes predictions directly to Supabase (ADR-007, R7)
+supabase==2.7.4
+python-dotenv==1.0.1
+
+# Web Push delivery from ml/serving/predict.py (VAPID keypair, §7.1)
+pywebpush==2.0.0

@@ -1,0 +1,58 @@
+# Keeps build contexts small and — more importantly — keeps local
+# credentials out of them. Applies to every image built from the repo
+# root: ml (docker/ml.Dockerfile), web (apps/web/Dockerfile), and api
+# (apps/api/Dockerfile).
+
+# Local environment files. Never in a build context, at ANY depth.
+# (docs/PROJECT_PLAN.md §7.1, docs/security/secrets-matrix.md)
+#
+# The `**/` prefix is load-bearing and must not be dropped. Docker matches
+# these patterns against the path relative to the context root, so a bare
+# `.dev.vars` excludes only a file of that name at the root — it would NOT
+# exclude `apps/api/.dev.vars`, which is where the service-role key
+# actually lives. Both app images `COPY . .` from the repository root, and
+# CI exports every intermediate build layer to a shared cache
+# (`cache-to: type=gha,mode=max`), so a miss here puts real credentials in
+# a cache other jobs can read.
+#
+# Verify after editing this file:
+#   docker build -f apps/api/Dockerfile --target build -t ctx-check .
+#   docker run --rm ctx-check find / -name ".dev.vars" -not -path "*/node_modules/*"
+# Expected output: nothing.
+**/.env
+**/.env.*
+!**/.env.example
+**/.dev.vars
+**/.dev.vars.*
+!**/.dev.vars.example
+
+# Installed and derived output. Every image installs and builds from
+# source inside the container; a host node_modules would also be the
+# wrong platform.
+**/node_modules
+**/dist
+**/dist-node
+**/.turbo
+**/.wrangler
+
+# Test output
+**/test-results
+**/playwright-report
+**/playwright/.cache
+
+# VCS, CI, editor, and OS noise
+.git
+.gitignore
+.github
+.devcontainer
+**/.DS_Store
+**/*.log
+
+# Large local ML data (DVC-tracked, gitignored) and throwaway notebooks —
+# bind-mounted at run time when needed, never baked into a layer.
+ml/data
+ml/notebooks
+
+# Docs and planning scratch space are never shipped in an image.
+docs
+temp

@@ -8,7 +8,19 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md,css}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,css}\""
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,css}\"",
+    "docker:db": "docker compose up -d db && node scripts/docker-status.mjs",
+    "docker:db:stop": "docker compose stop db && node scripts/docker-status.mjs",
+    "docker:db:logs": "docker compose logs -f db",
+    "docker:db:psql": "docker compose exec db psql -U postgres -d avash",
+    "docker:db:nuke": "docker compose down --volumes && node scripts/docker-status.mjs",
+    "docker:ml:build": "docker compose --profile ml build ml && node scripts/docker-status.mjs",
+    "docker:ml": "docker compose --profile ml run --rm ml",
+    "docker:apps:build": "docker compose --profile apps build",
+    "docker:apps": "docker compose --profile apps up -d && node scripts/docker-status.mjs",
+    "docker:apps:logs": "docker compose --profile apps logs -f",
+    "docker:apps:down": "docker compose --profile apps down && node scripts/docker-status.mjs",
+    "docker:status": "node scripts/docker-status.mjs"
   },
   "devDependencies": {
     "turbo": "latest",

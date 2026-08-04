@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "build": "wrangler deploy --dry-run",
+    "build:node": "esbuild server/node-server.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist-node/server.mjs",
     "lint": "eslint . --max-warnings=0",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.node.json",
     "test": "playwright test",
     "test:ui": "playwright test --ui"
   },
@@ -15,12 +16,15 @@
     "hono": "^4.5.11",
     "zod": "^3.23.8",
     "@avash/logger": "workspace:*",
-    "@avash/types": "workspace:*"
+    "@avash/types": "workspace:*",
+    "@hono/node-server": "^1.12.2"
   },
   "devDependencies": {
     "@avash/eslint-config": "workspace:*",
     "@cloudflare/workers-types": "^4.20240815.0",
     "@playwright/test": "^1.46.1",
+    "@types/node": "^20.14.15",
+    "esbuild": "^0.23.1",
     "eslint": "^9.9.0",
     "typescript": "^5.5.4",
     "wrangler": "^3.72.2"

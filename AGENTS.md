@@ -51,6 +51,32 @@ no server. Anything that must stay secret or server-side belongs in
 - Implement per-request ML inference inside a Cloudflare Worker as if it
   were free of CPU-time constraints — see ADR-002.
 - Reach for SSR/Next.js patterns; this is a client-rendered SPA (ADR-008).
+- Treat a container image as a deploy path. Both apps ship images
+  (ADR-012), but production deploys via Cloudflare Pages (`apps/web`) and
+  `wrangler deploy` (`apps/api`). The images are a portability artifact —
+  no deploy workflow consumes one.
+- Change `apps/api/src/**` to make the Node container work. The container
+  serves the *same* app object through an adapter in `apps/api/server/`;
+  Worker source stays runtime-agnostic and Node types stay out of it
+  (`tsconfig.node.json` exists for exactly this).
+- Add a Cloudflare-only API (KV, D1, R2, Durable Objects,
+  `caches.default`) to a route without either handling it in the Node
+  adapter or explicitly marking that spec Worker-only. `apps/api` has two
+  runtimes now and CI tests both — a silent divergence is a bug, not a
+  detail (ADR-012).
+- Pass anything but a `VITE_PUBLIC_*` value as a Docker build arg. Build
+  args are readable in image history forever.
+- **Reference an internal planning artifact in anything that ships.** No
+  milestone/phase numbers ("Milestone 5", "M5"), no task IDs ("M5-T09"),
+  no execution-schedule filenames, and no section numbers belonging to
+  one — not in code comments, docs, test names, workflow files, commit
+  messages, or PR descriptions. Those documents are gitignored, so such a
+  reference points at nothing a reader can open, and it goes stale the
+  moment the plan is re-sequenced. Describe work by what it does: the
+  vertical-slice name (`docs/PROJECT_PLAN.md` §13) or a plain feature
+  description. `§` references to `docs/PROJECT_PLAN.md` itself are fine —
+  that file ships. Enforced by `scripts/check-internal-refs.mjs` in CI;
+  run it before you finish. Full rule: `CONTRIBUTING.md` § Terminology.
 
 ## When modifying existing code
 Match the existing pattern in that file/module exactly, even if you'd
