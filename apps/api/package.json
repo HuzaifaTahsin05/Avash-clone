@@ -23,7 +23,7 @@
     "@avash/eslint-config": "workspace:*",
     "@cloudflare/workers-types": "^4.20240815.0",
     "@playwright/test": "^1.46.1",
-    "@types/node": "^20.14.15",
+    "@types/node": "^26.1.2",
     "esbuild": "^0.23.1",
     "eslint": "^9.9.0",
     "typescript": "^5.5.4",
