@@ -19,7 +19,8 @@ has not yet been reached.
 | [`README.md`](README.md) | This index | Existing |
 | [`architecture.md`](architecture.md) | Narrative architecture doc: system diagram, data flow, component boundaries, "what lives where" decision table | Existing |
 | [`constants-registry.md`](constants-registry.md) | Master table of all 22 §14 constants with implementation status | Existing |
-| `ci-cd.md` | Every CI/CD workflow: trigger, steps, required secrets, failure modes, rollback procedure | Planned |
+| [`docker.md`](docker.md) | Container runbook: the local PostGIS database, the ML image, the two app images, the optional dev container, and the images CI builds | Existing |
+| [`ci-cd.md`](ci-cd.md) | Every CI/CD workflow: trigger, steps, required secrets, failure modes, rollback procedure | Existing |
 
 ## `docs/adr/` — Architectural Decision Records
 
@@ -36,6 +37,9 @@ has not yet been reached.
 | [`adr/ADR-008-no-ssr.md`](adr/ADR-008-no-ssr.md) | Pure client-rendered SPA; SEO trade-off accepted | Existing |
 | [`adr/ADR-009-local-jwt-verification.md`](adr/ADR-009-local-jwt-verification.md) | Supabase Auth + local HS256 verification via `jose` | Existing |
 | [`adr/ADR-010-realtime-direct-from-browser.md`](adr/ADR-010-realtime-direct-from-browser.md) | Resource ticker subscribes to Supabase Realtime directly | Existing |
+| [`adr/ADR-011-docker-for-infra-not-apps.md`](adr/ADR-011-docker-for-infra-not-apps.md) | Docker for the local database, the ML runtime, and CI service containers | Existing — the "never containerize the apps" clause superseded by ADR-012 |
+| [`adr/ADR-012-app-container-images.md`](adr/ADR-012-app-container-images.md) | Both apps ship container images (nginx for web, Node/`@hono/node-server` for api); Cloudflare stays the deploy path; CI runs the API suite against both runtimes | Existing |
+| [`adr/ADR-013-leaflet-with-osm-tiles.md`](adr/ADR-013-leaflet-with-osm-tiles.md) | Leaflet over credential-free OpenStreetMap raster tiles; `VITE_PUBLIC_MAPBOX_TOKEN` removed repo-wide; dynamic overlays come from our own `apps/api` GeoJSON | Existing |
 
 ## `docs/standards/` — Engineering Standards
 

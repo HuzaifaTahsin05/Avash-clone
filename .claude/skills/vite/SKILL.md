@@ -32,7 +32,7 @@ addition or moving it into a lazy-loaded chunk.
 
 ## Chunk splitting for the map route
 
-Leaflet/Mapbox (and anything else only the map route needs) must be
+Leaflet (and anything else only the map route needs) must be
 chunk-split so users who never open `/map`-equivalent routes never
 download that code. This is done via the route's own `React.lazy` import
 plus Vite's automatic code-splitting on dynamic `import()` — don't

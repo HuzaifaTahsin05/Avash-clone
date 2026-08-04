@@ -11,7 +11,7 @@ Supabase/PostGIS data layer.
 ```mermaid
 flowchart LR
     subgraph Browser [apps/web — React 18 + Vite PWA, static, Cloudflare Pages]
-        MAP[Risk Map - Leaflet]
+        MAP[Risk Map - Leaflet + OSM tiles]
         SYM[Symptom Checker UI]
         REP[Breeding Report Form]
         RES[Resource Ticker]
@@ -48,6 +48,7 @@ flowchart LR
         GEMINI[Google Gemini API]
         TURNSTILE[Cloudflare Turnstile]
         WEBPUSH[Web Push - VAPID]
+        OSM[OpenStreetMap tile servers - no credential]
     end
 
     MAP --> API_READ --> MV
@@ -63,6 +64,7 @@ flowchart LR
     JOB_NEWS --> Data
     SW -. periodic sync .-> API_READ
     MW --> TURNSTILE
+    MAP -. basemap tiles, img-src .-> OSM
 ```
 
 ## Data flow, plain English
@@ -132,6 +134,34 @@ talking directly to Supabase — see ADR-002 and ADR-007. Full rationale in
 | A request handler, middleware, or anything reading `SUPABASE_SERVICE_ROLE_KEY`/`GEMINI_API_KEY`/other server secrets per-request | `apps/api` |
 | A scheduled ingestion, prediction, or scan job | `scripts/jobs/*` (Node) or `ml/serving/*` (Python), invoked by a GitHub Actions `schedule` workflow |
 | Model training, evaluation, and export (offline, not deployed) | `ml/training/`, `ml/evaluation/` |
+| A local database, the pinned Python runtime, or an image CI needs | `compose.yaml` / `docker/` — shared infrastructure and reproducibility (ADR-011) |
+| Packaging one app as a runnable image | That app's own `apps/*/Dockerfile` (ADR-012) — `apps/web` on nginx, `apps/api` on Node via `apps/api/server/node-server.ts`. Never inside `apps/api/src/**` |
 
 See `docs/PROJECT_PLAN.md` §1 for the full repository layout this table
 is derived from.
+
+## Containers, and where they sit relative to the diagram
+
+Nothing in the diagram above changes because of Docker — that is the
+point of how containers are scoped here.
+
+**Infrastructure containers (ADR-011)** — the PostGIS database and the
+Python ML runtime in `compose.yaml`/`docker/` — sit entirely outside the
+diagram. They are development and CI tooling: a database to test
+migrations against, and a pinned Python image so a locally exported ONNX
+artifact matches what the scheduled job produces. Neither is in a request
+path.
+
+**App images (ADR-012)** — `apps/web` and `apps/api` each ship an image —
+are a *second packaging* of boxes already in the diagram, not new boxes.
+The web image serves the same Vite output Cloudflare Pages serves; the API
+image serves the same Hono app object the Worker serves, through a Node
+adapter. Production still flows exactly as drawn: static bundle on Pages,
+Worker on workerd. The images exist so the same system can run somewhere
+else — a handover, a demo, a self-host — without a Cloudflare account.
+
+The one place this genuinely complicates the picture is `apps/api`, which
+now has two runtimes (workerd in production, Node in the image). That is
+managed, not ignored: CI runs the API's test suite against both, so the
+two stay behaviorally identical or the build goes red. See ADR-012 and
+`docs/docker.md`.

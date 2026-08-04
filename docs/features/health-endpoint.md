@@ -4,10 +4,9 @@ Follows the mandatory template from `docs/PROJECT_PLAN.md` §12.
 
 **Gist:** `apps/api` is now a working Hono-on-Cloudflare-Workers API with
 the full security middleware chain wired in front of a real `GET /health`
-liveness endpoint. This milestone is deliberately dependency-free — no
+liveness endpoint. The endpoint is deliberately dependency-free — no
 Supabase, no Gemini, no Upstash call happens anywhere in this request path
-(`docs/PROJECT_PLAN.md` §0.5B) — so CI can exercise it without live
-database credentials.
+— so CI can exercise it without live database credentials.
 
 **Technical Detail:**
 - Middleware chain, applied in this exact order on every request
@@ -40,8 +39,8 @@ database credentials.
 - `GET /health` (`apps/api/src/routes/health.ts`) returns `{ status: "ok",
   version, environment, timestamp, requestId }`, parsed against
   `healthResponseSchema` (`packages/types/api.ts`, R3) before it is
-  returned — the same schema `apps/web`'s `apiClient.ts` will validate
-  against once M4 wires the integration up. No DB call, no network call.
+  returned — the same schema `apps/web`'s `apiClient.ts` validates
+  against. No DB call, no network call.
 - `withErrorBoundary()` / `handleError()` (`packages/logger/index.ts`) log
   the full error (message, stack, correlation ID) server-side as
   structured JSON and return only `{ error: { message, requestId } }` to
@@ -76,11 +75,11 @@ database credentials.
 
 **Liveness vs. readiness:** `/health` is a **liveness** probe only — it
 answers "is the Worker running," not "is the database reachable." It
-intentionally has zero external dependencies so CI (Milestone 5, which
-runs before the database work in Milestone 6 per §0.5B) never needs live
-Supabase credentials to pass. Milestone 6 (`M6-T11`) adds a separate,
-additive `GET /health/db` **readiness** probe once the schema exists;
-nothing in this file is rewritten to add it.
+intentionally has zero external dependencies so the CI pipeline — which is
+built before the database schema exists — never needs live Supabase
+credentials to pass. The database schema work adds a separate, additive
+`GET /health/db` **readiness** probe once the schema exists; nothing in
+this file is rewritten to add it.
 
 **Critical Constants:**
 
@@ -114,8 +113,8 @@ nothing in this file is rewritten to add it.
   user-reported failure can always be correlated to a server-side log
   line without exposing internal detail.
 
-**Manual Test Log:** not yet run as a formal signed-off pass. The
-Milestone 3 exit gate's `curl` evidence (security headers, CORS rejection,
+**Manual Test Log:** not yet run as a formal signed-off pass. The backend
+scaffold's `curl` evidence (security headers, CORS rejection,
 typed 404) stands in as the informal verification for this slice; the
 formal, reviewer-signed three-pass log is completed as part of the
 project's final verification sweep (`docs/standards/testing.md`). Last

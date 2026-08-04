@@ -1,0 +1,52 @@
+{
+  // Optional. A dev container is one supported way to get a working
+  // toolchain (Node 20 + pnpm 9 + Python 3.11 + Docker CLI); a normal
+  // host install is equally supported and is what CI uses. See
+  // `docs/docker.md`.
+  //
+  // Deliberately NOT a compose-based dev container: `apps/web` and
+  // `apps/api` are never containerized (ADR-011). This container is a
+  // workspace that runs `pnpm dev` and `wrangler dev` directly, and talks
+  // to the `db` service as a sibling container via the host Docker socket.
+  "name": "Avash",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11",
+      "installTools": false
+    },
+    // Talks to the host's Docker daemon, so `docker compose up -d db`
+    // from inside this container starts a sibling, not a nested daemon.
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": false
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "forwardPorts": [5173, 8787, 54322],
+  "portsAttributes": {
+    "5173": { "label": "web (vite dev)" },
+    "8787": { "label": "api (wrangler dev)" },
+    "54322": { "label": "postgis (compose service: db)" }
+  },
+
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@9.1.0 --activate && pnpm install --frozen-lockfile",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-python.python",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+      }
+    }
+  },
+
+  "remoteUser": "node"
+}

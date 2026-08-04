@@ -1,0 +1,93 @@
+name: deploy-api
+
+# `wrangler deploy` for apps/api on merge to main (docs/PROJECT_PLAN.md
+# §11). Secrets are injected from GitHub Actions secrets via `wrangler
+# secret put`, never committed (R2). Guarded on token presence like
+# deploy-web.yml — no-ops cleanly when Cloudflare is not yet configured.
+# A post-deploy smoke test against the live /health endpoint fails the job
+# if the deploy did not actually come up healthy.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-api-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter api typecheck
+
+      - name: Check Cloudflare credentials
+        id: cf-check
+        # Secrets are read through `env:`, never interpolated as `${{ }}`
+        # into the script body — see the same step in deploy-web.yml for
+        # why. Only emptiness is tested; the value is never echoed.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set — skipping deploy. See docs/ci-cd.md."
+          fi
+
+      - name: Deploy to Cloudflare Workers (production)
+        if: steps.cf-check.outputs.configured == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy --env production
+          secrets: |
+            SUPABASE_SERVICE_ROLE_KEY
+            SUPABASE_JWT_SECRET
+            GEMINI_API_KEY
+            UPSTASH_REDIS_REST_URL
+            UPSTASH_REDIS_REST_TOKEN
+            TURNSTILE_SECRET_KEY
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+
+      - name: Post-deploy smoke test
+        if: steps.cf-check.outputs.configured == 'true'
+        env:
+          API_ORIGIN: ${{ vars.PRODUCTION_API_ORIGIN }}
+        run: |
+          if [ -z "$API_ORIGIN" ]; then
+            echo "::error::PRODUCTION_API_ORIGIN repository variable is not set — cannot smoke test the deploy."
+            exit 1
+          fi
+          status=$(curl -s -o /dev/null -w '%{http_code}' "$API_ORIGIN/health")
+          echo "GET $API_ORIGIN/health -> $status"
+          if [ "$status" != "200" ]; then
+            echo "::error::Post-deploy smoke test failed: /health returned $status, expected 200."
+            exit 1
+          fi

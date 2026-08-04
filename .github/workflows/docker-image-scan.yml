@@ -1,0 +1,76 @@
+name: docker-image-scan
+
+# Container image gates for the local infrastructure images (ADR-011):
+# hadolint on every docker/*.Dockerfile, Trivy on the built ML image. Both
+# are hard-fail per docs/PROJECT_PLAN.md §11 — no continue-on-error
+# anywhere. `ignore-unfixed: true` on the Trivy step is the one deliberate
+# softening allowed: an unfixable upstream CVE should not block every
+# unrelated PR.
+#
+# Triggers on paths that can change what ships in the image, plus a weekly
+# schedule — a base image accumulates CVEs while the Dockerfile sits
+# untouched, so a path-filter-only trigger would go permanently quiet.
+# apps/web/Dockerfile and apps/api/Dockerfile (ADR-012) are covered by
+# build-images.yml, not here — this workflow scopes to docker/ (ADR-011).
+
+on:
+  pull_request:
+    paths:
+      - "docker/**"
+      - "compose.yaml"
+      - "ml/requirements.txt"
+      - ".github/workflows/docker-image-scan.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - "compose.yaml"
+      - "ml/requirements.txt"
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-image-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hadolint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/ml.Dockerfile
+
+  trivy-ml-image:
+    needs: hadolint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the ML image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/ml.Dockerfile
+          load: true
+          push: false
+          tags: avash-ml:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan for HIGH/CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@v0.24.0
+        with:
+          image-ref: avash-ml:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

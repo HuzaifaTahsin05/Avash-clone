@@ -1,0 +1,225 @@
+name: ci
+
+# Enforces docs/PROJECT_PLAN.md §11's merge gate list. No step here may use
+# `continue-on-error` or `|| true` — a failing gate must fail the run
+# (docs/standards/git-workflow.md).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # docs/PROJECT_PLAN.md §14 — frontend shell bundle budget.
+  FRONTEND_BUNDLE_BUDGET_KB: 180
+
+jobs:
+  # lint -> typecheck -> test -> build (§11 order). packages/*'s and
+  # apps/api's Playwright specs need no browser and no built dist/, so they
+  # run inside `pnpm test` before `pnpm build`; only apps/web's end-to-end
+  # stage needs the production build, so it runs as its own job below
+  # against the artifact this job produces.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (zero errors, zero warnings)
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unused exports (ts-prune)
+        run: pnpm dlx ts-prune --error
+
+      - name: No internal planning references (CONTRIBUTING.md § Terminology)
+        run: node scripts/check-internal-refs.mjs
+
+      - name: Test (Playwright — packages/* and apps/api; no browser fixture)
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Bundle budget check (FRONTEND_BUNDLE_BUDGET_KB, §14)
+        run: node scripts/check-bundle-budget.mjs
+
+      - name: Bundle env-var scan (no non-VITE_PUBLIC_ reference reaches the client, §7.1/R2)
+        run: node scripts/scan-client-env.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist-${{ github.sha }}
+          path: apps/web/dist
+          retention-days: 1
+
+  e2e-web:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist-${{ github.sha }}
+          path: apps/web/dist
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright browsers (Chromium + Firefox — no browser fixture elsewhere)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter web exec playwright install --with-deps chromium firefox
+
+      - name: Install Playwright OS dependencies only (cache hit path)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter web exec playwright install-deps chromium firefox
+
+      - name: apps/web end-to-end (production preview)
+        run: pnpm --filter web test:e2e
+
+      - name: Upload Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-web-${{ github.sha }}
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+
+  # Same apps/api Playwright suite, run a second time against the Node
+  # container image instead of `wrangler dev` (ADR-012's parity obligation
+  # — a spec that passes on one runtime and fails on the other is a real
+  # divergence, not a flake, so nothing here may be skipped or softened).
+  api-container-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the API container image
+        run: docker build -f apps/api/Dockerfile -t avash-api:ci .
+
+      - name: Start the API container
+        # Same CORS_ALLOWED_ORIGINS / CORS_PREVIEW_ORIGIN_SUFFIX values
+        # `wrangler dev` picks up from apps/api/.dev.vars + wrangler.toml,
+        # so the CORS specs in apps/api/test exercise identical behavior
+        # on both runtimes (ADR-012's parity obligation).
+        run: |
+          docker run -d --name api-parity -p 8787:8787 \
+            -e CORS_ALLOWED_ORIGINS=https://avash.pages.dev,http://localhost:5173 \
+            -e CORS_PREVIEW_ORIGIN_SUFFIX=avash.pages.dev \
+            avash-api:ci
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+      - name: Run the API suite against the container (identical specs, Node runtime)
+        env:
+          API_TEST_TARGET: container
+        run: pnpm --filter api test
+
+      - name: Dump container logs (always, for debugging)
+        if: always()
+        run: docker logs api-parity 2>&1 || echo "::notice::no api-parity container logs to show"
+
+      - name: Remove the container (always, cleanup)
+        if: always()
+        run: docker rm -f api-parity 2>&1 || echo "::notice::api-parity container already removed"
+
+  # docs/PROJECT_PLAN.md §4 / §4.2 — a health-gated PostGIS service
+  # container that migration and RLS steps drop straight into once the
+  # schema exists. Deliberately thin today: it proves CI has a real
+  # spatial database available rather than discovering later that it has
+  # none.
+  postgis-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      # POSTGIS_LOCAL_IMAGE (docs/PROJECT_PLAN.md §14) — byte-identical to
+      # compose.yaml's `db` service image. No credential is referenced; the
+      # user/password below are throwaway, local-only values, never real
+      # Supabase credentials.
+      postgis:
+        image: postgis/postgis:15-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: avash
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for PostGIS health
+        run: |
+          for _ in $(seq 1 20); do
+            pg_isready -h 127.0.0.1 -p 5432 -U postgres && break
+            sleep 1
+          done
+
+      - name: Verify PostGIS and pgcrypto extensions
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Mirrors docker/postgis/initdb/00-extensions.sql. The service
+          # container above has no bind-mount for that script (GitHub
+          # Actions starts service containers before any step runs, so a
+          # checked-out file cannot be mounted into it) — this step is the
+          # CI-side equivalent, idempotent and identical in effect.
+          psql -h 127.0.0.1 -U postgres -d avash -c "create extension if not exists postgis;"
+          psql -h 127.0.0.1 -U postgres -d avash -c "create extension if not exists pgcrypto;"
+          psql -h 127.0.0.1 -U postgres -d avash -c "select postgis_version();"
+          psql -h 127.0.0.1 -U postgres -d avash -c "select extname from pg_extension;" | tee /tmp/extensions.txt
+          grep -q "postgis" /tmp/extensions.txt
+          grep -q "pgcrypto" /tmp/extensions.txt

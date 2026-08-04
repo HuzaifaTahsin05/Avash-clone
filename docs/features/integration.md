@@ -58,7 +58,7 @@ covered by its own Playwright spec.
   `wrangler.toml`'s `[vars]` / `[env.preview.vars]` / `[env.production.vars]`
   are untouched — no `localhost` entry exists in any deployed environment
   (`docs/standards/backend.md`).
-- **CSP `connect-src` (`apps/web/public/_headers`):** the M2 placeholder
+- **CSP `connect-src` (`apps/web/public/_headers`):** the frontend-scaffold placeholder
   (`https://api.avash.example.placeholder`) is replaced with the real
   `apps/api` Worker name (`https://avash-api-production.workers.dev`,
   matching `wrangler.toml`'s `[env.production]` block — still a

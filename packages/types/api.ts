@@ -6,9 +6,10 @@ export interface ApiResponse<T> {
 }
 
 /**
- * `GET /health` response contract (M3-T09). Liveness only — no DB field,
- * since this endpoint is intentionally dependency-free (§0.5B). M6 adds a
- * separate `/health/db` readiness probe with its own schema.
+ * `GET /health` response contract. Liveness only — no DB field, since the
+ * endpoint is intentionally dependency-free so CI can exercise it without
+ * live database credentials. A separate `/health/db` readiness probe with
+ * its own schema arrives with the database schema work.
  */
 export const healthResponseSchema = z.object({
   status: z.literal('ok'),

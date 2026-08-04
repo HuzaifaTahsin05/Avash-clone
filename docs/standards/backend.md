@@ -39,7 +39,7 @@ Applied in this exact order, on every request:
    not merge `[vars]` across environments, both vars must be redeclared
    in `[vars]`, `[env.preview.vars]`, and `[env.production.vars]`.
 
-   **Local development origin (M4-T07):** the Vite dev server
+   **Local development origin:** the Vite dev server
    (`http://localhost:5173`) needs a `CORS_ALLOWED_ORIGINS` entry to reach
    a locally running Worker, but `localhost` must never appear in
    `wrangler.toml` — that file's `[vars]`/`[env.*.vars]` blocks are what

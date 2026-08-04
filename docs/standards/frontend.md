@@ -36,6 +36,48 @@ own hooks, components, and query definitions. `apps/web/src/pages/*` are
 thin route-level components that compose feature-slice pieces — page
 components do not contain feature business logic directly.
 
+## Map rendering (ADR-013)
+
+The map is **Leaflet**, and it is two independent layers that must not be
+confused with each other:
+
+| Layer | Source | Owned by | Changes at runtime? |
+|---|---|---|---|
+| Basemap tiles | OpenStreetMap standard raster tiles, via a Leaflet `TileLayer` | a third party — background imagery only | No — a fixed backdrop |
+| Overlays: region polygons, risk shading, hospital markers, breeding-report pins | GeoJSON from `apps/api` (served out of `region_risk_summary`, ADR-006) | **us** | Yes — this is the product |
+
+Rules that follow from that split:
+
+- **Everything dynamic is an overlay, never a tile concern.** Marking,
+  recoloring, filtering, or re-rendering places and areas is done by
+  updating our own Leaflet vector/marker layers from a TanStack Query
+  result. The tile provider plays no part in it, and no basemap
+  limitation constrains what the map can highlight.
+- **Overlay data is fetched like any other server state** — a `useQuery`
+  hook in `apps/web/src/features/map/`, zod-parsed through
+  `packages/types` before a single layer is constructed. Never build a
+  layer straight from an unparsed response.
+- **Risk colors come from `RISK_LEVEL_BANDS`** (§14), and color is never
+  the only signal — pair every band with a label or pattern, per the
+  accessibility rules below.
+- **The tile layer reads its three values from the registry**
+  (`MAP_TILE_URL_TEMPLATE`, `MAP_TILE_ATTRIBUTION`, `MAP_TILE_MAX_ZOOM`
+  in `apps/web/src/features/map/tileLayer.ts`), never as inline string
+  literals. Attribution is a usage-policy obligation, not decoration —
+  it stays visible.
+- **No map credential exists, and none may be introduced** without a
+  follow-up ADR superseding ADR-013. There is no `VITE_PUBLIC_` map
+  variable to add.
+- **Leaflet loads on the map route only**, through that route's own
+  `React.lazy` boundary, so it never enters the shell bundle counted
+  against `FRONTEND_BUNDLE_BUDGET_KB`.
+- **The tile host needs a CSP `img-src` entry** in
+  `apps/web/public/_headers` (and the container's
+  `security-headers.conf.template`) — `img-src`, not `connect-src`,
+  because raster tiles are `<img>` requests. Add it in the same change
+  that adds the tile layer; a dev server serves no CSP, so a missing
+  entry passes locally and blocks the basemap in production.
+
 ## Optional-chaining checklist (R4)
 
 Every one of the following access points **must** use optional chaining
@@ -52,7 +94,7 @@ before approving a PR (`docs/PROJECT_PLAN.md` §0.4):
 | 5 | `navigator.geolocation` callbacks | Permission may be denied; API may be unavailable |
 | 6 | `navigator.serviceWorker` / Push API callbacks | Browser support and registration state vary |
 | 7 | `Notification` API | Permission state is user-controlled and can change at any time |
-| 8 | Leaflet/Mapbox SDK event payloads | Third-party event shape is not guaranteed by our types |
+| 8 | Leaflet event payloads (`map`, `layer`, `marker` handlers) | Third-party event shape is not guaranteed by our types; `e.latlng`/`e.target` are typed as present but arrive from library internals |
 | 9 | Gemini responses (surfaced to `apps/web` only via `apps/api`'s already-validated JSON) | Treat as untrusted until it has passed the shared `packages/types` zod schema |
 | 10 | `useParams()` / `useSearchParams()` (React Router) | Route params are attacker/user-controlled strings, may be missing or malformed |
 
@@ -70,7 +112,7 @@ untrusted source rendered directly into the DOM.
 The main shell bundle budget is **< 180 KB gzip**
 (`FRONTEND_BUNDLE_BUDGET_KB`, `docs/PROJECT_PLAN.md` §14). Enforced via
 `rollup-plugin-visualizer` in `vite.config.ts` (measured on every build)
-and a CI gate. Leaflet/Mapbox and other map-route-only dependencies are
+and a CI gate. Leaflet and other map-route-only dependencies are
 chunk-split so they never contribute to the shell bundle for users who
 never open the map.
 
@@ -106,7 +148,10 @@ exception path.
 - PWA caching strategy (`vite-plugin-pwa`/Workbox, `docs/PROJECT_PLAN.md`
   §8): `NetworkFirst` for `apps/api` data, `CacheFirst` for map tiles
   (7-day expiry, max 200 entries), `StaleWhileRevalidate` for static
-  assets/fonts.
+  assets/fonts. The tile policy is not only a performance choice — it is
+  how this project stays within OpenStreetMap's tile usage policy
+  (ADR-013), so do not weaken it to `NetworkFirst` for fresher imagery
+  that never changes anyway.
 
 ## Layout & typography
 

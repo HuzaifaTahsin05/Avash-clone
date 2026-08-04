@@ -3,9 +3,10 @@ import { healthResponseSchema } from '@avash/types';
 import type { AppEnv } from '../types';
 
 /**
- * Liveness probe only — no DB, no network call (§0.5B). M6 extends this
- * surface with a separate `/health/db` readiness probe once the schema
- * exists; nothing here gets rewritten to add it.
+ * Liveness probe only — no DB, no network call, so CI can exercise it
+ * without live database credentials. The database schema work extends
+ * this surface with a separate `/health/db` readiness probe; nothing here
+ * gets rewritten to add it.
  */
 export const health = new Hono<AppEnv>().get('/', (c) => {
   const body = healthResponseSchema.parse({

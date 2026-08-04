@@ -10,7 +10,7 @@ const VALID_PAYLOAD = {
   requestId: '00000000-0000-0000-0000-000000000000',
 };
 
-test.describe('health integration — four UI states (M4-T11)', () => {
+test.describe('health integration — four UI states', () => {
   test('success — live values render from an intercepted /health response', async ({ page }) => {
     await page.route(HEALTH_URL, (route) => route.fulfill({ json: VALID_PAYLOAD }));
     await page.goto('/');
