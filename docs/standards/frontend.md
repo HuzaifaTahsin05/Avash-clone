@@ -6,7 +6,7 @@ This document defines the frontend standards for the React + Vite SPA in this pr
 ## Core Stack
 - **Framework:** React 18 + Vite
 - **Routing:** React Router
-- **Styling:** CSS modules or plain CSS; Tailwind is acceptable only when already adopted in a feature slice
+- **Styling:**  Tailwind 
 - **State:** React Query for server state, local component state for UI-only state
 - **Data access:** Use the shared API client and typed DTOs from the monorepo packages
 

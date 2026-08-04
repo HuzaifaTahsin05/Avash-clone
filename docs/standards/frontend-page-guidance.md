@@ -3,6 +3,8 @@
 ## Purpose
 This document is a documentation-only guide for how the frontend pages should be structured and what each page must communicate to users. It is intentionally isolated from runtime implementation so product and UX requirements remain explicit.
 
+This page should be read alongside the frontend standards in [docs/standards/frontend.md](docs/standards/frontend.md) so implementation choices, page-level UX requirements, and repository-wide design expectations stay aligned.
+
 ## Core Product Pages
 
 ### 1. Risk Map Page
