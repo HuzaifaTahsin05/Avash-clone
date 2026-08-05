@@ -17,7 +17,7 @@
     "zod": "^3.23.8",
     "@avash/logger": "workspace:*",
     "@avash/types": "workspace:*",
-    "@hono/node-server": "^1.12.2"
+    "@hono/node-server": "^2.0.12"
   },
   "devDependencies": {
     "@avash/eslint-config": "workspace:*",
