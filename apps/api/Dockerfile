@@ -10,7 +10,7 @@
 # apps/api/server/. The two runtimes are kept honest by CI running the
 # API test suite against both — see docs/docker.md.
 
-FROM node:20.17.0-alpine3.20 AS build
+FROM node:24.1.0-alpine3.20 AS build
 WORKDIR /repo
 ENV CI=true
 
@@ -21,7 +21,7 @@ COPY . .
 RUN pnpm install --frozen-lockfile \
     && pnpm --filter api build:node
 
-FROM node:20.17.0-alpine3.20 AS runtime
+FROM node:24.1.0-alpine3.20 AS runtime
 
 ENV NODE_ENV=production \
     PORT=8787
