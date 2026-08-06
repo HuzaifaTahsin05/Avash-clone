@@ -21,12 +21,12 @@
   },
   "devDependencies": {
     "@avash/eslint-config": "workspace:*",
-    "@cloudflare/workers-types": "^4.20240815.0",
+    "@cloudflare/workers-types": "^5.20260804.1",
     "@playwright/test": "^1.46.1",
     "@types/node": "^26.1.2",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
     "typescript": "^6.0.3",
-    "wrangler": "^3.72.2"
+    "wrangler": "^4.118.0"
   }
 }

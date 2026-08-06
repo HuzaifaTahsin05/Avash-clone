@@ -29,7 +29,7 @@
     "turbo": "latest",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.2.0",
-    "wrangler": "3.114.17"
+    "wrangler": "4.118.0"
   },
   "engines": {
     "node": ">=18"
