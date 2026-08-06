@@ -1,0 +1,48 @@
+name: Set up workspace
+description: >-
+  pnpm + Node toolchain and (optionally) an installed workspace, with the
+  pnpm store and turbo cache warmed. Every job that needs Node uses this,
+  so the toolchain version is declared in exactly one place.
+
+# The pipeline runs its gates as separate concurrent jobs rather than as
+# sequential steps in one job, which means each of them pays for its own
+# `pnpm install`. That is only cheap because the pnpm store restores from
+# cache — the install becomes a link-from-store pass rather than a
+# download. Keep the store cache working, or the concurrency stops paying
+# for itself.
+
+inputs:
+  install:
+    description: Run `pnpm install --frozen-lockfile`. Set false for a toolchain-only job.
+    required: false
+    default: "true"
+  turbo-cache:
+    description: >-
+      Restore and save turbo's local task cache. Useful for lint/typecheck/
+      build; pointless for jobs that run no turbo task.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v5
+
+    # Node 24: wrangler 4 requires >=22, and the app images (ADR-012) pin
+    # node:24 — the runner matching the image keeps a "works in CI, fails
+    # in the container" class of bug from existing.
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: pnpm
+
+    - if: inputs.turbo-cache == 'true'
+      uses: actions/cache@v6
+      with:
+        path: .turbo
+        key: ${{ runner.os }}-turbo-${{ github.sha }}
+        restore-keys: ${{ runner.os }}-turbo-
+
+    - if: inputs.install == 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile

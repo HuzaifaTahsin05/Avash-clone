@@ -1,26 +1,30 @@
 name: codeql
 
 # Static analysis (SAST) across every language in the repo (docs/PROJECT_PLAN.md
-# §7.4, §11). Runs on every PR and weekly on schedule, since a vulnerable
-# pattern can be introduced by a dependency update with no code change of
-# our own. Any high/critical finding fails the run per §11 — no
+# §7.4, §11). Any high/critical finding fails the run per §11 — no
 # continue-on-error anywhere.
+#
+# Called by pipeline.yml alongside ci.yml, and gates the image build the
+# same way the rest of the gates do. SAST that runs *next to* the build
+# rather than *before* it is a report, not a gate; §11 asks for a gate.
+#
+# REPOSITORY REQUIREMENT: CodeQL uploads results to GitHub code scanning,
+# which is available on public repositories and, on private ones, only
+# with GitHub Advanced Security. Without it every run fails at the upload
+# step with "Resource not accessible by integration" / "Code scanning is
+# not enabled for this repository" — a repository-settings problem, not a
+# workflow one, and not fixable by adding permissions here. See
+# docs/ci-cd.md § The SAST gate.
 
 on:
-  pull_request:
-  push:
-    branches: [main]
-  schedule:
-    - cron: "0 3 * * 1"
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
   security-events: write
-
-concurrency:
-  group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  # The analyze step reads workflow run metadata to attach results to the
+  # right ref; without this it degrades on pull_request events.
+  actions: read
 
 jobs:
   analyze:
