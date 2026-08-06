@@ -6,7 +6,6 @@
     "types": ["node", "@cloudflare/workers-types"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "baseUrl": ".",
     "noEmit": true
   },
   "include": ["src", "server"],

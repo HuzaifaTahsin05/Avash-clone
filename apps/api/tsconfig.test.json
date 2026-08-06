@@ -6,7 +6,6 @@
     "types": ["node", "@cloudflare/workers-types", "@playwright/test"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "baseUrl": ".",
     "noEmit": true
   },
   "include": ["src", "test", "playwright.config.ts"],
