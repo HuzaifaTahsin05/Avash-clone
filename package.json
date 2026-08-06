@@ -23,12 +23,13 @@
     "docker:status": "node scripts/docker-status.mjs"
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
+    "eslint": "^9.9.0",
+    "prettier": "^3.3.3",
     "turbo": "latest",
     "typescript": "^5.5.4",
-    "eslint": "^9.9.0",
     "typescript-eslint": "^8.2.0",
-    "prettier": "^3.3.3",
-    "@types/node": "^26.1.2"
+    "wrangler": "3.114.17"
   },
   "engines": {
     "node": ">=18"

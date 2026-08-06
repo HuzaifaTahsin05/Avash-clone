@@ -26,6 +26,9 @@ importers:
       typescript-eslint:
         specifier: ^8.2.0
         version: 8.65.0(eslint@9.39.5)(typescript@5.9.3)
+      wrangler:
+        specifier: 3.114.17
+        version: 3.114.17(@cloudflare/workers-types@4.20260702.1)
 
   apps/api:
     dependencies:

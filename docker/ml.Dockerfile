@@ -50,7 +50,7 @@ RUN python -m pip install --requirement ./ml/requirements.txt
 # by the developer rather than by root.
 RUN useradd --create-home --uid 1000 avash \
     && chown -R avash:avash /app
-USER avash
+USER 1000
 
 # Baked for the CI/standalone case (`docker run avash-ml:local`). In local
 # development compose bind-mounts ./ml over this, so edits need no rebuild.

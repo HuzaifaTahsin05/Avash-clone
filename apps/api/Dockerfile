@@ -32,12 +32,13 @@ WORKDIR /app
 # carries no node_modules and no package manager.
 COPY --from=build /repo/apps/api/dist-node/server.mjs ./server.mjs
 
-# node:alpine ships a non-root `node` user (UID 1000).
-USER node
+# node:alpine ships a non-root `node` user; the numeric UID (rather than
+# the name) is what host systems and orchestrators can actually resolve.
+USER 1000
 
 EXPOSE 8787
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --quiet --spider http://127.0.0.1:8787/health || exit 1
+  CMD ["sh", "-c", "wget --quiet --spider http://127.0.0.1:8787/health || exit 1"]
 
 CMD ["node", "server.mjs"]
