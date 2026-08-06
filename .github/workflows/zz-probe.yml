@@ -1,0 +1,9 @@
+name: zz-probe
+on:
+  push:
+    branches: [dev]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "probe ran on ${{ github.ref_name }}"
