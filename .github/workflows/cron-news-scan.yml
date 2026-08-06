@@ -45,7 +45,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.ready == 'true'
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - if: steps.guard.outputs.ready == 'true'
