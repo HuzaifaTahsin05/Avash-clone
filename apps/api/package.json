@@ -6,6 +6,27 @@
   "scripts": {
     "dev": "wrangler dev",
     "build": "wrangler deploy --dry-run",
-    "test": "echo \"api tests passed\""
+    "build:node": "esbuild server/node-server.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist-node/server.mjs",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@avash/logger": "workspace:*",
+    "@avash/types": "workspace:*",
+    "@hono/node-server": "^2.0.12",
+    "hono": "^4.5.11",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@avash/eslint-config": "workspace:*",
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "@playwright/test": "^1.46.1",
+    "@types/node": "^26.1.2",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.8.0",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.118.0"
   }
 }

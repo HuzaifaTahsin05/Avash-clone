@@ -1,0 +1,74 @@
+name: docker-image-scan
+
+# Container image gates for the local infrastructure images (ADR-011):
+# hadolint on docker/ml.Dockerfile, Trivy on the built ML image. Both are
+# hard-fail per docs/PROJECT_PLAN.md §11 — no continue-on-error anywhere.
+# `ignore-unfixed: true` on the Trivy step is the one deliberate softening
+# allowed: an unfixable upstream CVE should not block every unrelated PR.
+#
+# apps/web/Dockerfile and apps/api/Dockerfile (ADR-012) are covered by
+# build-images.yml, not here — this workflow scopes to docker/ (ADR-011).
+#
+# Called by pipeline.yml in the same stage as build-images.yml. It used to
+# carry its own path-filtered triggers; those are gone because §11 counts
+# an ML-image Trivy finding as build-failing, and a gate that only
+# evaluates when someone happened to touch docker/ is not a gate. The
+# buildx GHA cache is what keeps running it every time affordable.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  hadolint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.4.0
+        with:
+          dockerfile: docker/ml.Dockerfile
+
+  trivy-ml-image:
+    needs: hadolint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the ML image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/ml.Dockerfile
+          load: true
+          push: false
+          tags: avash-ml:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # `output:` writes the report before the non-zero exit is applied,
+      # so one scan both gates the build and feeds the weekly CVE report
+      # (pipeline.yml's cve-report job). Still hard-fail: `exit-code: 1`.
+      - name: Scan for HIGH/CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: avash-ml:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+          output: trivy-ml.txt
+
+      - name: Upload this image's scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-ml
+          path: trivy-ml.txt
+          retention-days: 7
+          if-no-files-found: warn

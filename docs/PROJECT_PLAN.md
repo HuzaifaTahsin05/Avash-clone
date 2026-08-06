@@ -8,14 +8,13 @@
 
 ## 0. Ground Rules (Read First)
 
-1. **Vertical slices only.** One feature, fully working end-to-end (DB → API → UI → docs → 3 manual tests), before starting the next. See §14 for slice order.
+1. **Vertical slices only.** One feature, fully working end-to-end (DB → API → UI → docs → 3 manual tests → automated tests), before starting the next. See §14 for slice order.
 2. **Secrets never touch the client.** `apps/web` is a static SPA shipped to the browser — it must never import, bundle, or reference a non-`VITE_PUBLIC_`-prefixed secret. Anything touching Gemini, Supabase service role, OpenWeatherMap, Upstash, Turnstile secret, or VAPID private keys lives in `apps/api` (Cloudflare Worker) or in GitHub Actions job scripts — never in `apps/web`.
 3. **One types source.** All shared TS interfaces/DTOs/zod schemas live in `packages/types`. No inline duplicate interfaces anywhere else.
-4. **Optional chaining is mandatory** on every external/untrusted access point: `fetch()` responses, Supabase query results, `JSON.parse`, `localStorage`/`IndexedDB`, browser Geolocation/Notification/Push APIs, third-party SDK callbacks (Leaflet/Mapbox events), Gemini responses. PR reviewers must grep for raw `.property` access on any of these before approval.
-5. **No test scripts for frontend.** Every frontend feature gets 3 manual test passes (§10) documented in the PR description.
-6. **Docs are code.** A PR that changes behavior without updating `docs/` is incomplete, not "done later."
-7. **Engineering correction from brief:** true per-request ML inference *inside* a Cloudflare Worker at the free tier is not realistic (10ms CPU-time cap on the free plan applies to actual compute, not I/O wait — WASM tensor math is compute-bound and will blow the cap across many regions). §5.3 documents the honest, working architecture that still satisfies the "zero-cost, edge, near-0ms perceived latency" goal.
-8. **No SSR.** `apps/web` is a client-rendered SPA. Public risk-map SEO is a deliberately accepted trade-off (ADR-008) — do not attempt to bolt on server rendering piecemeal; if it's ever needed, it gets its own ADR and migration plan.
+4. **Optional chaining is mandatory** on every external/untrusted access point: `fetch()` responses, Supabase query results, `JSON.parse`, `localStorage`/`IndexedDB`, browser Geolocation/Notification/Push APIs, third-party SDK callbacks (Leaflet map/layer/marker events), Gemini responses. PR reviewers must grep for raw `.property` access on any of these before approval.
+5. **Docs are code.** A PR that changes behavior without updating `docs/` is incomplete, not "done later."
+6. **Engineering correction from brief:** true per-request ML inference *inside* a Cloudflare Worker at the free tier is not realistic (10ms CPU-time cap on the free plan applies to actual compute, not I/O wait — WASM tensor math is compute-bound and will blow the cap across many regions). §5.3 documents the honest, working architecture that still satisfies the "zero-cost, edge, near-0ms perceived latency" goal.
+7. **No SSR.** `apps/web` is a client-rendered SPA. Public risk-map SEO is a deliberately accepted trade-off (ADR-008) — do not attempt to bolt on server rendering piecemeal; if it's ever needed, it gets its own ADR and migration plan.
 
 ---
 
@@ -27,6 +26,7 @@
 ├── .claude/                       # Claude project settings + reusable skills
 ├── .codex/                        # Codex CLI config
 ├── .cursor/                       # Cursor MCP server config
+├── .devcontainer/                 # Optional dev container — toolchain only; apps still run on the host (ADR-011)
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                 # lint → typecheck → unit test → build (both apps)
@@ -35,8 +35,9 @@
 │   │   ├── deploy-api.yml         # Wrangler deploy → Cloudflare Workers
 │   │   ├── cron-weather-ingest.yml   # scheduled: OpenWeatherMap → Supabase
 │   │   ├── cron-batch-predict.yml    # scheduled: ONNX inference → Supabase + push alerts
-│   │   └── cron-news-scan.yml        # scheduled: news scrape → Gemini classify → Supabase
-│   └── dependabot.yml             # weekly npm + pip + actions updates
+│   │   ├── cron-news-scan.yml        # scheduled: news scrape → Gemini classify → Supabase
+│   │   └── build-images.yml          # build + scan + publish the two app images to GHCR (ADR-012)
+│   └── dependabot.yml             # weekly npm + pip + actions + docker updates
 ├── apps/
 │   ├── web/                       # React 18 + Vite PWA — pure static SPA, Cloudflare Pages
 │   │   ├── src/
@@ -49,6 +50,8 @@
 │   │   │   ├── App.tsx
 │   │   │   └── main.tsx
 │   │   ├── public/                 # manifest.webmanifest, icons, offline.html, _headers, _redirects
+│   │   ├── docker/                 # nginx server block + security-headers snippet for the image
+│   │   ├── Dockerfile              # multi-stage: node build → nginx-unprivileged serving dist/ (ADR-012)
 │   │   ├── vite.config.ts          # vite-plugin-pwa (Workbox) + bundle-analyzer + env validation
 │   │   └── index.html
 │   └── api/                        # Hono on Cloudflare Workers — ALL secret-touching request logic
@@ -56,7 +59,9 @@
 │       │   ├── routes/              # risk-map.ts, resources.ts, reports.ts, symptom-check.ts, alerts.ts
 │       │   ├── middleware/          # cors.ts, security-headers.ts, rate-limit.ts, turnstile.ts, auth.ts
 │       │   ├── lib/                 # supabaseAdmin.ts, geminiClient.ts, jwtVerify.ts
-│       │   └── index.ts             # Hono app entry, route mounting
+│       │   └── index.ts             # Hono app entry, route mounting — the ONE app object both runtimes serve
+│       ├── server/                  # node-server.ts — @hono/node-server adapter for the image only (ADR-012)
+│       ├── Dockerfile               # multi-stage: esbuild bundle → node:alpine running server.js
 │       ├── wrangler.toml
 │       └── package.json
 ├── ml/                              # OFFLINE pipeline — Python, never deployed as a live app
@@ -81,16 +86,22 @@
 │   └── jobs/
 │       ├── weather-ingest.ts        # Node/TS — called by cron-weather-ingest.yml
 │       └── news-scan.ts             # Node/TS — called by cron-news-scan.yml
+├── docker/                          # Shared infra images (ADR-011). Per-app Dockerfiles live in apps/* (ADR-012)
+│   ├── ml.Dockerfile                # Python 3.11 runtime for ml/ — batch container, never a deployed service
+│   └── postgis/initdb/              # Extension enablement on first boot (postgis, pgcrypto); no schema objects
 ├── docs/
 │   ├── adr/
 │   ├── standards/
 │   ├── data-schema/
 │   ├── ml/
-│   └── security/
+│   ├── security/
+│   └── docker.md                    # Container runbook: local DB, ML image, dev container, CI images
 ├── AGENTS.md
 ├── CLAUDE.md
 ├── CONTRIBUTING.md
 ├── SECURITY.md
+├── compose.yaml                     # Services: db + ml (infra), web + api behind the `apps` profile (ADR-012)
+├── .dockerignore                    # Keeps .env / .dev.vars and build output out of every build context
 ├── package.json
 ├── pnpm-workspace.yaml
 └── turbo.json
@@ -114,6 +125,9 @@
 | ADR-008 | **No SSR** — `apps/web` is a pure client-rendered SPA | React (not Next.js) has no built-in server rendering story worth adopting here. Trade-off accepted: the public risk map is not search-engine-crawlable at launch. If SEO becomes a priority, revisit via a dedicated ADR (e.g., prerendering just the landing route) — do not silently bolt on SSR |
 | ADR-009 | Auth = Supabase Auth (client SDK) + local JWT verification in the Worker | Supabase issues HS256 JWTs; `apps/api` verifies them locally against `SUPABASE_JWT_SECRET` (via `jose`) instead of round-tripping to Supabase Auth on every request — faster, still fully server-side |
 | ADR-010 | Realtime resource ticker uses **Supabase Realtime** directly from the browser (not via `apps/api`) | `blood_inventory`/`hospitals` are public-read (RLS-gated), so subscribing directly with the anon key over `postgres_changes` is safe and removes an unnecessary hop |
+| ADR-011 | **Docker for local infrastructure and ML reproducibility** — a PostGIS database, the Python ML runtime, and CI service containers. *(The "apps are never containerized" clause is superseded by ADR-012; everything else stands)* | Schema/RLS/spatial work needs a real PostGIS instance, and ONNX export is dependency-version-sensitive — both are worth a pinned container |
+| ADR-012 | **Both apps ship container images**, built and published per app — `apps/web` on nginx serving the Vite build, `apps/api` on Node via `@hono/node-server`. Cloudflare Pages/Workers stays the primary deploy target | Images make the project portable, handover-ready, and self-hostable without a Cloudflare account or a local toolchain, and leave a SHA-tagged artifact per merge. The cost — `apps/api` now runs on both workerd and Node — is paid explicitly: CI runs `apps/api`'s Playwright suite against **both** runtimes, so a divergence is a red build, not a surprise for whoever self-hosts |
+| ADR-013 | **Leaflet with OpenStreetMap raster tiles, no map credential** — the basemap comes from `tile.openstreetmap.org`; region polygons and markers are drawn from our own `apps/api` GeoJSON on top of it | Splits "map library" from "tile provider," which §7.1 had previously conflated. Leaflet renders our dynamic layers without a WebGL dependency on low-end hardware, and OSM tiles remove `VITE_PUBLIC_MAPBOX_TOKEN` — along with its account, scoping procedure, and rotation path — from the project entirely. The tile source is one registry constant plus one CSP `img-src` entry, so moving to a keyed or self-hosted provider under real traffic is a swap, not a rewrite |
 
 New decisions get a new file in `docs/adr/`, numbered sequentially, never edited retroactively (superseded ADRs are marked, not deleted).
 
@@ -124,7 +138,7 @@ New decisions get a new file in `docs/adr/`, numbered sequentially, never edited
 ```mermaid
 flowchart LR
     subgraph Browser [apps/web — React 18 + Vite PWA, static, Cloudflare Pages]
-        MAP[Risk Map - Leaflet]
+        MAP[Risk Map - Leaflet + OSM tiles]
         SYM[Symptom Checker UI]
         REP[Breeding Report Form]
         RES[Resource Ticker]
@@ -161,6 +175,7 @@ flowchart LR
         GEMINI[Google Gemini API]
         TURNSTILE[Cloudflare Turnstile]
         WEBPUSH[Web Push - VAPID]
+        OSM[OpenStreetMap tile servers - no credential]
     end
 
     MAP --> API_READ --> MV
@@ -176,6 +191,7 @@ flowchart LR
     JOB_NEWS --> Data
     SW -. periodic sync .-> API_READ
     MW --> TURNSTILE
+    MAP -. basemap tiles, img-src .-> OSM
 ```
 
 **Data flow, plain English:**
@@ -466,25 +482,45 @@ All routes mounted in `apps/api/src/index.ts`. Every request passes through `mid
 
 | Variable | Exposure | Used by |
 |---|---|---|
+| `SUPABASE_URL` | server-only | `apps/api`, GH Actions job scripts, `ml/serving/predict.py` (same value as `VITE_PUBLIC_SUPABASE_URL`; not secret, but server-side consumers read it under this name) |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-only | `apps/api`, GH Actions job scripts |
 | `SUPABASE_JWT_SECRET` | server-only | `apps/api` (local JWT verification, ADR-009) |
 | `VITE_PUBLIC_SUPABASE_URL` / `VITE_PUBLIC_SUPABASE_ANON_KEY` | client (`apps/web`) | citizen reads, Realtime subscriptions — real gate is RLS, not secrecy |
+| `VITE_PUBLIC_API_BASE_URL` | client (`apps/web`) | base URL of the `apps/api` Worker, used by `apps/web/src/lib/apiClient.ts` |
 | `GEMINI_API_KEY` | server-only | `apps/api` routes, `scripts/jobs/news-scan.ts` |
 | `OPENWEATHERMAP_API_KEY` | server-only | `scripts/jobs/weather-ingest.ts` |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | server-only | `apps/api` rate limiter |
 | `TURNSTILE_SECRET_KEY` | server-only | `apps/api` (server-side verification call) |
 | `VITE_PUBLIC_TURNSTILE_SITE_KEY` | client | widget render only |
-| `VITE_PUBLIC_MAPBOX_TOKEN` | client | scoped to domain-restricted, read-only Mapbox token |
-| `VAPID_PUBLIC_KEY` | client (`apps/web`) | Push subscription registration |
+| `VITE_PUBLIC_VAPID_PUBLIC_KEY` | client (`apps/web`) | Push subscription registration |
+| `VAPID_PUBLIC_KEY` | server-only | `ml/serving/predict.py` (Web Push signing needs both halves of the keypair); same value as `VITE_PUBLIC_VAPID_PUBLIC_KEY` |
 | `VAPID_PRIVATE_KEY` | server-only | `ml/serving/predict.py` (sends push notifications), never in any deployed app |
+| `DATABASE_URL_LOCAL` | local-only | migration/seed tooling pointed at the `compose.yaml` `db` container (ADR-011). Not a credential — a disposable localhost database. No deployed environment ever reads it |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | local-only | optional overrides for the `db` container's defaults (`postgres`/`postgres`/`avash`/`54322`), read by Compose from the repo-root `.env` |
 
 Rule: any variable without the `VITE_PUBLIC_` prefix must never be imported into `apps/web` source — enforced via an ESLint boundary rule (`packages/config/eslint-config`) that fails the build if a non-prefixed env access appears anywhere under `apps/web/src`. Vite itself also refuses to inline non-`VITE_`-prefixed vars into the client bundle by default — this is a defense-in-depth double lock, not a single point of failure.
+
+**Corollary — a client-consumed variable must carry the prefix in its own name.** A value that legitimately needs to reach the browser cannot be named without `VITE_PUBLIC_` and still be readable: the ESLint rule rejects the source-level access *and* Vite declines to inline it. This is why the VAPID public key appears twice above under two names — `VITE_PUBLIC_VAPID_PUBLIC_KEY` for the browser's subscription call, `VAPID_PUBLIC_KEY` for the Python signing path — rather than once under a bare name that neither lock would let the client read.
+
+**No map credential appears above, deliberately.** The risk map renders with Leaflet over OpenStreetMap raster tiles, which require no account or token (ADR-013). The tile URL, attribution, and max zoom are §14 registry constants, not environment variables — they are neither secret nor environment-specific. `VITE_PUBLIC_MAPBOX_TOKEN` was removed from this table, and from every consumer of it, by ADR-013.
+
+**Local development files.** Each of the three runtime contexts loads its own gitignored file, with a committed `*.example` template as the tracked inventory:
+
+| Context | Real file (gitignored) | Tracked template | Loaded by |
+|---|---|---|---|
+| `apps/web` browser bundle | `apps/web/.env` | `apps/web/.env.example` | Vite, at build time — `VITE_PUBLIC_` keys only |
+| `apps/api` Worker | `apps/api/.dev.vars` | `apps/api/.dev.vars.example` | `wrangler dev`, injected as typed `Bindings` (`apps/api/src/types.ts`) |
+| Job scripts + `ml/` | `.env` (repo root) | `.env.example` | `scripts/jobs/*`, `ml/serving/*` when run locally; also read by Compose for `compose.yaml` interpolation |
+
+`.gitignore` ignores `.env`, `.env.*`, `.dev.vars`, and `.dev.vars.*` while re-including the `*.example` templates, so a real credential cannot be committed by following the setup instructions. Deployed environments never read these files — see `docs/security/secrets-matrix.md` for the per-environment mechanism.
 
 ### 7.2 Threat Model (STRIDE, by feature)
 
 **Risk Map / Resource Reads (public, unauthenticated)**
 - *DoS:* unbounded bbox queries → clamp max bbox area server-side in `apps/api`; rely on MV + edge cache, not live spatial joins.
 - *Info disclosure:* exact hospital blood stock could be scraped in bulk → rate limit + no bulk export endpoint; Realtime channel only exposes rows already covered by public RLS `select`.
+- *Info disclosure (basemap):* the browser requests tiles directly from a third-party host (ADR-013), disclosing the viewport to OpenStreetMap's servers → accepted and bounded rather than eliminated: tiles carry no identifier of ours, `Referrer-Policy: strict-origin-when-cross-origin` limits what the host learns, and the `CacheFirst` tile policy (§8) suppresses repeat requests.
+- *Tampering (basemap):* a hijacked tile host serving misleading imagery → the tile host is granted `img-src` only, never `script-src` or `connect-src`, so a hostile response can neither execute nor read anything; every authoritative map element is our own overlay from `apps/api`, not basemap imagery.
 
 **Breeding Report Submission (anonymous-friendly write)**
 - *Spoofing/Spam:* bot floods → Turnstile mandatory + IP rate limit + Gemini spam-likelihood filter, all enforced in `apps/api` (unreachable directly from a static frontend bundle).
@@ -524,7 +560,7 @@ Rule: any variable without the `VITE_PUBLIC_` prefix must never be imported into
 ### 7.4 Transport & Header Hardening
 
 **`apps/web` (Cloudflare Pages, static — enforced via `public/_headers`):**
-- `Content-Security-Policy`: `default-src 'self'; connect-src 'self' https://<api-domain> https://<supabase-project>.supabase.co https://api.mapbox.com; script-src 'self'; style-src 'self' 'unsafe-inline';` — no Gemini domain in client CSP at all, because the browser never talks to Gemini directly.
+- `Content-Security-Policy`: `default-src 'self'; connect-src 'self' https://<api-domain> https://<supabase-project>.supabase.co; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; script-src 'self'; style-src 'self' 'unsafe-inline';` — no Gemini domain in client CSP at all, because the browser never talks to Gemini directly. The tile host is allow-listed under **`img-src`, not `connect-src`**: Leaflet's raster `TileLayer` loads tiles as `<img>` elements, so a `connect-src` entry would neither permit them nor be needed. The `img-src` entry lands in `apps/web/public/_headers` with the risk-map slice (§13), not before — an allow-list entry for a host nothing yet requests is dead configuration.
 - `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`.
 - `Permissions-Policy`: `geolocation=(self)`, `notifications=(self)` — scoped only to routes that need them.
 
@@ -544,7 +580,7 @@ Rule: any variable without the `VITE_PUBLIC_` prefix must never be imported into
 | Map/resource reads | Served from `region_risk_summary` MV + covering GiST index via `apps/api`; edge-cached `s-maxage=300, stale-while-revalidate=600` |
 | DB connections | Supabase **Supavisor** transaction-mode pooler for the Worker; never a direct long-lived connection from a stateless invocation |
 | DB query safety | `statement_timeout = 5s` at the API role level; every spatial query bounded by a max bbox area / max radius (`ALERT_PROXIMITY_RADIUS_DEFAULT_M` ceiling 20,000m) |
-| Frontend bundle | React Router lazy routes (`React.lazy` + `Suspense`) per page; Leaflet/Mapbox chunk split out and loaded only on the map route; TanStack Query for request de-duplication/caching; main shell bundle budget **< 180KB gzip** |
+| Frontend bundle | React Router lazy routes (`React.lazy` + `Suspense`) per page; the Leaflet chunk split out and loaded only on the map route; TanStack Query for request de-duplication/caching; main shell bundle budget **< 180KB gzip** |
 | ONNX/WASM | Loaded lazily only when the user opens the "on-device risk" feature; never in the critical render path; cached by the service worker after first load |
 | PWA caching (Workbox via `vite-plugin-pwa`) | `NetworkFirst` for `apps/api` data (fallback to cache when offline), `CacheFirst` for map tiles (7-day expiry, max 200 entries), `StaleWhileRevalidate` for static assets/fonts |
 | Realtime | Single Supabase Realtime channel per open ticker view, cleaned up on unmount — never left subscribed across route changes |
@@ -564,7 +600,7 @@ Rule: any variable without the `VITE_PUBLIC_` prefix must never be imported into
 
 ---
 
-## 10. Testing Protocol (Manual, No Scripts — Frontend)
+## 10. Testing Protocol
 
 Every feature PR must include all three passes, documented inline in the PR description:
 
@@ -579,13 +615,23 @@ Every feature PR must include all three passes, documented inline in the PR desc
 2. Submit a valid report with geolocation granted → appears in "My Reports" as pending, moderator sees it in queue.
 3. Submit 10 reports in 30 seconds from the same IP → 6th onward rejected with generic "Too many requests" toast; submit `<script>alert(1)</script>` as description → stored as inert text, never executed; call `POST https://<api-domain>/api/reports/breeding-site` directly with `lat: 999` → rejected 400 by zod schema before hitting the DB; call it from an unregistered `Origin` header → rejected by CORS before it reaches the handler.
 
+Use `playwright` for automated regression tests — `apps/web` end-to-end (a real browser against the production preview), `apps/api` (real HTTP requests against a live `wrangler dev`/Miniflare instance), and `packages/*` (pure logic, no browser or server, `test`/`expect` only) — but **manual testing is mandatory** for every PR touching a write path or LLM-touching feature. The three-pass checklist must be filled out in the PR description and signed off by the reviewer.
+
 ---
 
 ## 11. CI/CD Pipeline
 
-`turbo.json` pipeline: `lint → typecheck → test (vitest, packages + apps/api logic) → build (apps/web, apps/api)`. GitHub Actions (`ci.yml`) runs this matrix on every PR; `codeql.yml` runs SAST on every PR and weekly on schedule; `deploy-web.yml` builds `apps/web` (Vite) and publishes the static output to Cloudflare Pages (preview per PR, production on `main` merge); `deploy-api.yml` runs `wrangler deploy` for `apps/api` on `main` merge.
+`turbo.json` pipeline: `lint → typecheck → test (playwright, packages + apps/api logic + apps/web end-to-end) → build (apps/web, apps/api)`. **Playwright is the single automated test framework for the whole repo** — no Vitest anywhere. `packages/*` specs are pure logic (`test`/`expect`, no server, no browser). `apps/api` specs run as real HTTP requests via Playwright's `request` fixture against a `wrangler dev` instance its own config starts (`webServer`) — independent of a prior `build` step, since `wrangler dev` bundles on the fly. `apps/web` specs run against the **production preview** (`pnpm preview`), which does need `dist/` built first — so in CI, `apps/web`'s end-to-end stage specifically runs after `build`; `apps/api`'s and `packages/*`'s test stages have no such dependency. **One gated pipeline, two branches.** `pipeline.yml` is the only entrypoint for pull requests and for pushes to `main` and `dev`; every other workflow except the three `cron-*` jobs is a reusable workflow it calls (`on: workflow_call`). It composes them into a single run graph with real `needs:` edges — **gates → build image → scan image → deploy** — because `needs:` only sequences jobs within one workflow, and four workflows each carrying their own `push: [main]` trigger is four races, not a pipeline. `ci.yml` runs the matrix above as concurrent jobs (`lint`, `typecheck`, `static-analysis`, `test`, `build` → `e2e-web`) sharing a warm pnpm store; `codeql.yml` runs SAST alongside it and gates the same stage. `deploy-web.yml` builds `apps/web` (Vite) and publishes the static output to Cloudflare Pages; `deploy-api.yml` runs `wrangler deploy` for `apps/api`. `main` deploys to production, `dev` to the `avash-api-preview` Worker environment and the `dev` Pages branch, and a pull request gets a Pages preview only. Branch → channel is resolved once in `pipeline.yml`'s `context` job and passed down as workflow inputs; no downstream job re-derives it from `github.ref`.
 
-CI must fail the build on: any ESLint error/warning, any TypeScript error, any unused export flagged by `ts-prune`, any CodeQL high/critical finding, model checksum mismatch (for ML artifact PRs), and any client bundle referencing a non-`VITE_PUBLIC_`-prefixed env var.
+CI must fail the build on: any ESLint error/warning, any TypeScript error, any unused export flagged by `ts-prune`, any CodeQL high/critical finding, any Trivy high/critical finding in the ML image, model checksum mismatch (for ML artifact PRs), and any client bundle referencing a non-`VITE_PUBLIC_`-prefixed env var.
+
+**Containers in CI (ADR-011, ADR-012).** Database-touching jobs (migrations, RLS policies, spatial queries) declare `postgis/postgis:15-3.4` as a GitHub Actions `services:` container with a `pg_isready` health check, so schema work is verified against a real PostGIS instance with no hosted-Supabase dependency and no credentials in CI. Every Dockerfile is linted with hadolint and every built image scanned with Trivy (high/critical fails the job).
+
+`build-images.yml` builds both app images on every PR and publishes them to GHCR on `main` and `dev` — `ghcr.io/<owner>/avash-web` and `ghcr.io/<owner>/avash-api`, tagged `sha-<short>` plus `latest` on `main` or `dev` on the integration branch. These images are a **parallel artifact, not a deploy path**: `deploy-web.yml` (Pages) and `deploy-api.yml` (`wrangler deploy`) remain how production ships, and no deploy workflow consumes an image. What the pipeline does add is *ordering* — the deploy jobs sit behind the image build and its Trivy scan as `needs:` ancestors, so an image that cannot be built or cannot be scanned clean stops the deploy even though the deploy never reads it. The deployed bytes are therefore not the scanned bytes; that gap is accepted deliberately, because Cloudflare Pages and Workers cannot deploy an OCI image at all.
+
+The weekly scheduled run of `pipeline.yml` publishes a `cve-report` artifact — Trivy output for all three images in one Markdown file, under a stable artifact name overwritten each week, so the current CVE state is always one download rather than a pile of per-run artifacts.
+
+**The `apps/api` dual-runtime gate.** Because the API image runs on Node while production runs on workerd, `apps/api`'s Playwright suite runs **twice** in CI — once against `wrangler dev` and once against the running container — with the same specs and the same expectations. This is the parity obligation ADR-012 accepts in exchange for shipping the image; removing it means dropping the image, not quietly running one runtime.
 
 ---
 
@@ -599,7 +645,7 @@ Every feature doc in `docs/` follows this template — no exceptions:
 **Technical Detail:** data flow, tables touched, external calls, edge cases handled.
 **Critical Constants:** table of every static threshold/limit used, with file location.
 **Security Considerations:** threats enumerated + mitigation (mirror §7.2 for that feature).
-**Manual Test Log:** last 3-pass test date + result summary.
+**Manual Test Log:** last pass test date + result summary.
 ```
 
 Docs are updated **in the same PR** as the code change — a PR touching `blood_inventory` logic without touching `docs/data-schema/postgis-schema.md` (if schema changed) or the feature doc is rejected in review.
@@ -621,7 +667,7 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 9. **Security hardening pass:** re-run the STRIDE table (§7.2) against the *actual* shipped code, not the plan, close gaps.
 10. **On-device ONNX inference (PWA bonus feature):** ship last, since it depends on a stable, versioned model artifact from slice 3.
 
-**Git conventions:** branch `feat/<slice-name>`, Conventional Commits (`feat:`, `fix:`, `docs:`, `sec:`), PR template requires: linked slice number, updated docs checklist, 3-pass manual test log, and a filled-in "security vectors considered" section for any write-path change.
+**Git conventions:** branch `feat/<slice-name>`, Conventional Commits (`feat:`, `fix:`, `docs:`, `sec:`), PR template requires: linked slice number, updated docs checklist, test log, and a filled-in "security vectors considered" section for any write-path change.
 
 **Original 10-week phase mapping** (unchanged from the proposal): Weeks 1–2 requirements/data, Weeks 3–4 schema+model+wireframes, Weeks 5–7 slices 1–7 above, Week 8 slice 9 (hardening), Week 9 deployment, Week 10 slice 8/10 polish + handover.
 
@@ -653,7 +699,18 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 | `ALERT_PROXIMITY_RADIUS_DEFAULT_M` | 2000 (bounds: 100–20,000) | `packages/geo`, `alert_subscriptions` check constraint | `ST_DWithin` default/ceiling |
 | `DB_STATEMENT_TIMEOUT_S` | 5 | Supabase API role config | prevents runaway spatial queries |
 | `FRONTEND_BUNDLE_BUDGET_KB` | < 180 KB gzip (shell) | `apps/web/vite.config.ts` bundle analyzer CI check | performance |
-| `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/src/middleware/cors.ts` | cross-origin write protection |
+| `MAP_TILE_URL_TEMPLATE` | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | `apps/web/src/features/map/tileLayer.ts` | basemap tile source; the one value to change when swapping tile providers (ADR-013) |
+| `MAP_TILE_ATTRIBUTION` | `© OpenStreetMap contributors` | `apps/web/src/features/map/tileLayer.ts` | attribution control — required by the OSM tile usage policy, not optional styling |
+| `MAP_TILE_MAX_ZOOM` | 19 | `apps/web/src/features/map/tileLayer.ts` | highest zoom the OSM standard style serves; requesting past it returns blank tiles |
+| `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/wrangler.toml` (`CORS_ALLOWED_ORIGINS`, `CORS_PREVIEW_ORIGIN_SUFFIX` vars), read in `apps/api/src/config/cors.ts` | cross-origin write protection |
+| `API_CLIENT_TIMEOUT_MS` | 8000 | `apps/web/src/lib/apiClient.ts` | aborts a hung `apps/api` request instead of leaving a query pending indefinitely |
+| `POSTGIS_LOCAL_IMAGE` | `postgis/postgis:15-3.4` | `compose.yaml`, CI `services:` container | local + CI database parity with Supabase's Postgres 15 / PostGIS 3 (ADR-011) |
+| `ML_PYTHON_IMAGE` | `python:3.11-slim-bookworm` | `docker/ml.Dockerfile`, cron workflow `python-version` | reproducible ML runtime — identical dependency tree locally and on schedule |
+| `POSTGRES_LOCAL_PORT` | 54322 (host) → 5432 (container) | `compose.yaml` | avoids collision with a host-installed Postgres; matches the Supabase CLI convention |
+| `WEB_IMAGE_BASE` | `nginxinc/nginx-unprivileged:1.27.2-alpine` | `apps/web/Dockerfile` | runtime base for the web image — non-root, listens on 8080 (ADR-012) |
+| `API_IMAGE_BASE` | `node:20.17.0-alpine3.20` | `apps/api/Dockerfile` (both stages) | build + runtime base for the API image; Node 20 matches the Worker's `nodejs_compat` baseline |
+| `APP_CONTAINER_PORTS` | web 8080, api 8787 (in-container) | `apps/web/docker/default.conf.template`, `apps/api/server/node-server.ts`, `compose.yaml` | fixed in-container ports; host ports are overridable via `WEB_PORT`/`API_PORT` |
+| `CONTAINER_REGISTRY` | `ghcr.io/<owner>/avash-web`, `ghcr.io/<owner>/avash-api` | `.github/workflows/build-images.yml` | published image names; tagged `sha-<short>`, plus `latest` on `main` |
 
 ---
 
@@ -664,7 +721,7 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 ```md
 # AGENTS.md — Instructions for AI Coding Agents
 
-You are working inside Avash (আভাস). The file `docs/BLUEPRINT.md` (this document)
+You are working inside Avash (আভাস). The file `docs/PROJECT_PLAN.md` (this document)
 is the single source of truth. If your plan conflicts with it, stop and flag
 the conflict instead of proceeding.
 
@@ -674,7 +731,7 @@ no server. Anything that must stay secret or server-side belongs in
 `scripts/jobs/` or `ml/serving/`.
 
 ## ALWAYS
-- Implement end-to-end (DB → apps/api → apps/web → docs → 3 manual tests) —
+- Implement end-to-end (DB → apps/api → apps/web → docs → tests) —
   one vertical slice at a time, per §13.
 - Keep sensitive data server-side only (§7.1). Before finishing any task
   touching secrets, grep `apps/web/src` to confirm no non-`VITE_PUBLIC_`
@@ -688,8 +745,7 @@ no server. Anything that must stay secret or server-side belongs in
   detail, critical constants table, security considerations.
 - Write generic, user-friendly error/toast messages. Log full detail
   server-side with a correlation ID instead.
-- Run the 3 manual test passes (§10) and report the results, even though
-  there are no automated frontend test scripts.
+- Run the test passes (§10) and report the results.
 - Match existing patterns in the file/module you are editing.
 - Keep responses and working context lean — do not re-read files you already
   have full context on; summarize instead of re-pasting large blocks.
@@ -708,6 +764,10 @@ no server. Anything that must stay secret or server-side belongs in
 - Implement per-request ML inference inside a Cloudflare Worker as if it
   were free of CPU-time constraints — see ADR-002.
 - Reach for SSR/Next.js patterns; this is a client-rendered SPA (ADR-008).
+- Treat a container image as a deploy path — production ships via Cloudflare
+  Pages/Workers; the app images (ADR-012) are a parallel artifact.
+- Add a Cloudflare-only API to an `apps/api` route without either supporting it
+  in the Node adapter or explicitly marking it Worker-only (ADR-012 parity rule).
 
 ## When modifying existing code
 Match the existing pattern in that file/module exactly, even if you'd
@@ -730,7 +790,11 @@ writing code, per §7.2's format. Add it to `docs/security/threat-model.md`.
 - `pnpm --filter web dev` — Vite dev server for the React SPA
 - `pnpm --filter api dev` — `wrangler dev` for the Hono Worker API
 - `pnpm lint` / `pnpm typecheck` / `pnpm build` — turbo pipeline across both apps, run before every commit
-- `pnpm --filter @avash/security test` (etc.) — vitest for `packages/*` logic (geo, security, ml-inference wrapper)
+- `pnpm --filter @avash/security test` (etc.) — playwright for `packages/*` logic (geo, security, ml-inference wrapper) — the same test framework as `apps/api` and `apps/web`, just without a server or browser fixture
+- `pnpm docker:db` — start the local Postgres 15 + PostGIS container (`compose.yaml`, ADR-011); `docker:db:psql`, `docker:db:nuke` for a shell and a full reset
+- `pnpm docker:ml <cmd>` — run a command in the pinned Python 3.11 ML image (`docker:ml:build` first)
+- `pnpm docker:apps:build` / `pnpm docker:apps` — build and run the two app images (ADR-012); web on `:8080`, api on `:8787`
+- `pnpm docker:status` — the real state of every service and, for anything not up, the exact command to start it (`scripts/docker-status.mjs`, `docs/docker.md` § Checking what's running)
 - `pnpm db:migrate` — apply `packages/db/supabase/migrations`
 - `pnpm db:seed` — `scripts/seed-db.ts` (regions, sample hospitals, historical cases)
 - `python ml/training/train.py` — retrain models (requires `ml/data` populated via DVC pull)
@@ -739,11 +803,12 @@ writing code, per §7.2's format. Add it to `docs/security/threat-model.md`.
 - `pnpm tsx scripts/jobs/weather-ingest.ts` — run the weather ingest job locally
 
 ## Where things live
-- Read the full picture: `docs/BLUEPRINT.md` (this file), then `AGENTS.md` for hard rules.
+- Read the full picture: `docs/PROJECT_PLAN.md` (this file), then `AGENTS.md` for hard rules.
 - Types: `packages/types` only.
 - Anything secret-touching: `apps/api/src/routes/*`, or `scripts/jobs/*` / `ml/serving/*` for cron work.
   `apps/web` never touches a secret — if you find yourself about to, stop.
-- Constants: never hardcode — check §14 of the blueprint first.
+- Constants: never hardcode — check §14 of `docs/PROJECT_PLAN.md` first.
+- Containers: `compose.yaml` + `docker/` for infra (ADR-011); `apps/*/Dockerfile` for the two app images (ADR-012). Cloudflare stays the deploy path.
 
 ## Context hygiene
 Keep working context under ~40% capacity. Summarize prior findings instead
@@ -765,10 +830,10 @@ Covers `apps/web` (React SPA), `apps/api` (Hono/Cloudflare Workers),
 `packages/*`, GitHub Actions job scripts (`scripts/jobs/`, `ml/serving/`),
 and the Supabase schema in `packages/db`. The `ml/training` pipeline is out
 of scope for runtime security, but its output (the ONNX artifact) is
-checksum-verified before every inference run (§7.2 of `docs/BLUEPRINT.md`).
+checksum-verified before every inference run (§7.2 of `docs/PROJECT_PLAN.md`).
 
 ## Controls in place
-- Row Level Security enabled on every Supabase table (§4.1 of the blueprint).
+- Row Level Security enabled on every Supabase table (§4.1 of `docs/PROJECT_PLAN.md`).
 - Strict backend/frontend separation: `apps/web` ships zero server secrets;
   all privileged logic lives in `apps/api` or scheduled job scripts.
 - Rate limiting (Upstash) on every write and LLM-touching `apps/api` route.
@@ -783,7 +848,7 @@ checksum-verified before every inference run (§7.2 of `docs/BLUEPRINT.md`).
 - Background jobs run with no public HTTP trigger surface (ADR-007).
 
 ## Full threat model
-See `docs/security/threat-model.md`, kept in sync with §7.2 of the blueprint.
+See `docs/security/threat-model.md`, kept in sync with §7.2 of `docs/PROJECT_PLAN.md`.
 ```
 
 ### `CONTRIBUTING.md`
@@ -791,7 +856,7 @@ See `docs/security/threat-model.md`, kept in sync with §7.2 of the blueprint.
 ```md
 # Contributing
 
-1. Read `docs/BLUEPRINT.md` fully before your first PR — it is the source
+1. Read `docs/PROJECT_PLAN.md` fully before your first PR — it is the source
    of truth for architecture, schema, constants, and security rules.
 2. One vertical slice per PR (§13). No partial DB-only or UI-only PRs for
    a new feature unless explicitly scoped as a foundation slice.
@@ -803,9 +868,9 @@ See `docs/security/threat-model.md`, kept in sync with §7.2 of the blueprint.
 5. Before opening a PR: `pnpm lint && pnpm typecheck && pnpm build` must
    pass locally for both `apps/web` and `apps/api`.
 6. PR description must include:
-   - Linked slice/section of the blueprint
+   - Linked slice/section of `docs/PROJECT_PLAN.md`
    - Updated docs (per §12 template)
-   - 3-pass manual test log (§10)
+   - test log (§10)
    - Security vectors considered (§7.2 format), for any write-path or
      auth-adjacent change
 7. Do not modify a test or a manual-test description to force a broken

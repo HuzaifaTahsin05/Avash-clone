@@ -1,0 +1,29 @@
+node_modules
+dist
+dist-node
+.turbo
+*.log
+
+# pnpm content-addressable store, when it lands inside the repo instead of
+# the global location (e.g. a container with no writable global XDG dir).
+.pnpm-store
+
+# Local environment files — NEVER commit real values (R2, §7.1).
+# Only the committed *.example templates are tracked.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Wrangler local dev cache (apps/api)
+.wrangler/
+
+# Playwright — every workspace using @playwright/test (apps/web, apps/api,
+# packages/logger, and any package/app added later) generates these at
+# the same relative paths.
+test-results/
+playwright-report/
+playwright/.cache/
+.secrets

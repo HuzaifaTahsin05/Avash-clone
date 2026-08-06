@@ -1,0 +1,56 @@
+# Server block for the apps/web image (ADR-012).
+#
+# Mirrors two files Cloudflare Pages reads and nginx cannot:
+#   apps/web/public/_redirects  -> the SPA fallback below
+#   apps/web/public/_headers    -> security-headers.conf.template
+# Change one, change the other, in the same PR (§7.4).
+#
+# __API_ORIGIN__ is substituted at build time with VITE_PUBLIC_API_BASE_URL.
+
+server {
+    listen 8080;
+    listen [::]:8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    server_tokens off;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml application/manifest+json;
+
+    # Container health check target. Never cached, never logged.
+    location = /healthz {
+        access_log off;
+        add_header Content-Type text/plain always;
+        return 200 "ok\n";
+    }
+
+    # Fingerprinted build output — safe to cache forever.
+    location /assets/ {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # The shell and the service worker must always revalidate, or a deploy
+    # never reaches an already-open tab.
+    location = /index.html {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+    }
+
+    location = /sw.js {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+    }
+
+    # SPA fallback — the nginx equivalent of `/*  /index.html  200`.
+    location / {
+        include /etc/nginx/snippets/security-headers.conf;
+        try_files $uri $uri/ /index.html;
+    }
+}

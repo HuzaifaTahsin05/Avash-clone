@@ -1,0 +1,79 @@
+name: deploy-web
+
+# Builds apps/web and publishes it to Cloudflare Pages (docs/PROJECT_PLAN.md
+# §11). Only VITE_PUBLIC_* variables are injected at build time — none of
+# them are secret by definition (§7.1, R2).
+#
+# Called by pipeline.yml only after every gate and the image scan are
+# green, so a deploy can no longer race the test suite. Which Pages branch
+# it targets is the caller's decision, passed in as `pages_branch`:
+# `main` is production, anything else is a preview deployment.
+#
+# This workflow must be safe when Cloudflare is not yet configured: the
+# deploy step is guarded on CLOUDFLARE_API_TOKEN being present and no-ops
+# cleanly otherwise, so a fork PR or an early-stage repo does not fail CI
+# for lacking a credential it was never given.
+
+on:
+  workflow_call:
+    inputs:
+      pages_branch:
+        description: >-
+          Cloudflare Pages branch to deploy to. "main" is the production
+          deployment; any other value is a preview.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-workspace
+
+      - name: Build apps/web
+        env:
+          VITE_PUBLIC_API_BASE_URL: ${{ vars.VITE_PUBLIC_API_BASE_URL }}
+          VITE_PUBLIC_SUPABASE_URL: ${{ vars.VITE_PUBLIC_SUPABASE_URL }}
+          VITE_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.VITE_PUBLIC_SUPABASE_ANON_KEY }}
+          VITE_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.VITE_PUBLIC_TURNSTILE_SITE_KEY }}
+          VITE_PUBLIC_VAPID_PUBLIC_KEY: ${{ vars.VITE_PUBLIC_VAPID_PUBLIC_KEY }}
+        run: pnpm --filter web build
+
+      - name: Check Cloudflare credentials
+        id: cf-check
+        # Secrets are read through `env:`, never interpolated as `${{ }}`
+        # into the script body. A `${{ secrets.X }}` inside `run:` is
+        # substituted into the shell script text before execution, which
+        # writes the plaintext value into a script file on the runner and
+        # lets a value containing shell metacharacters alter the command.
+        # Only the emptiness of the variable is ever tested here — the
+        # value itself is never echoed or expanded.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set — skipping deploy. See docs/ci-cd.md."
+          fi
+
+      # One step for every target. The branch name is what Cloudflare
+      # Pages uses to decide production vs. preview, so passing it in
+      # replaces the pair of near-identical steps this workflow used to
+      # carry.
+      - name: Deploy to Cloudflare Pages
+        if: steps.cf-check.outputs.configured == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/web/dist --project-name=avash --branch=${{ inputs.pages_branch }}

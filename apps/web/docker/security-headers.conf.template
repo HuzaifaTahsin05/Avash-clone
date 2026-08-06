@@ -1,0 +1,19 @@
+# The nginx restatement of apps/web/public/_headers (§7.4), which only
+# Cloudflare Pages reads.
+#
+# This is `include`d in every location that sets its own add_header,
+# because nginx DROPS all inherited add_header directives as soon as a
+# location adds one of its own. Omitting the include from a new location
+# silently removes every security header from that path.
+#
+# __API_ORIGIN__ is substituted at build time with VITE_PUBLIC_API_BASE_URL,
+# so connect-src always names the exact origin the bundle was compiled to
+# call. No Gemini domain appears here — the browser never calls Gemini
+# directly.
+
+add_header Content-Security-Policy "default-src 'self'; connect-src 'self' __API_ORIGIN__; script-src 'self'; style-src 'self' 'unsafe-inline';" always;
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "geolocation=(self), notifications=(self)" always;

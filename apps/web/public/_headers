@@ -1,0 +1,15 @@
+# Cloudflare Pages custom headers (docs/PROJECT_PLAN.md §7.4).
+# connect-src now names the real apps/api Worker (matching the
+# env.production block in apps/api/wrangler.toml — name="avash-api-production").
+# The value below is still the placeholder workers.dev origin until a real
+# Cloudflare account subdomain / custom domain is assigned (same TBD status
+# as CORS_ALLOWED_ORIGINS in docs/constants-registry.md) — update both
+# together, in the same change, once the real domain exists. No Gemini
+# domain appears here: the browser never calls Gemini directly (§7.4).
+/*
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://avash-api-production.workers.dev; script-src 'self'; style-src 'self' 'unsafe-inline';
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(self), notifications=(self)

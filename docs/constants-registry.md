@@ -1,0 +1,109 @@
+# Constants Registry
+
+Single source of truth for every static threshold used anywhere in this
+codebase, mirroring `docs/PROJECT_PLAN.md` §14 exactly. **If you hardcode
+a number anywhere else, it must appear here first** — add the row (and the
+corresponding §14 row) in the same PR that introduces the value.
+
+`Status` starts `documented` for every row. A row flips to `implemented`
+only once the constant is actually wired into the code location listed.
+
+| Constant | Value | Defined in | Purpose | Status |
+|---|---|---|---|---|
+| `DENGUE_FAVORABLE_TEMP_MEAN_C` | 27 | `ml/training/config.py`, `packages/types/ml.ts` | breeding-favorability feature flag | documented |
+| `DENGUE_FAVORABLE_TEMP_MIN_C` | 22 | `ml/training/config.py`, `packages/types/ml.ts` | breeding-favorability feature flag | documented |
+| `DENGUE_FAVORABLE_HUMIDITY_PCT` | 80 | `ml/training/config.py`, `packages/types/ml.ts` | breeding-favorability feature flag | documented |
+| `PREDICTION_HORIZONS_WEEKS` | [2, 4] | `ml/training/config.py` | forecast horizons | documented |
+| `SURGE_TARGET_THRESHOLD` | +30% WoW case growth | `ml/training/config.py` | classification label definition | documented |
+| `RISK_LEVEL_BANDS` | low < .25, moderate < .50, high < .75, severe ≥ .75 | `packages/types/ml.ts`, SQL generated column | UI color coding, alerts | documented |
+| `MIN_RECALL_TARGET` / `MIN_PRECISION_TARGET` | 0.85 / 0.60 | `ml/evaluation/backtest.py` | model promotion gate | documented |
+| `ONNX_MODEL_SIZE_BUDGET` | < 2 MB | `ml/training/export_onnx.py` | PWA offline cache feasibility | documented |
+| `MODEL_RETRAIN_CADENCE` | monthly, manual promotion | `docs/ml/model-card.md` | drift mitigation | documented |
+| `BATCH_PREDICT_CADENCE` | every 24h | `.github/workflows/cron-batch-predict.yml` | freshness of `risk_predictions` | documented |
+| `WEATHER_INGEST_CADENCE` | every 3h | `.github/workflows/cron-weather-ingest.yml` | freshness of weather features | documented |
+| `RISK_MAP_CACHE_TTL_S` | s-maxage=300, swr=600 | `apps/api/src/routes/risk-map.ts` | edge cache behavior | documented |
+| `MV_REFRESH_INTERVAL` | triggered post-batch-predict | `ml/serving/predict.py` | map read freshness | documented |
+| `BREEDING_REPORT_RATE_LIMIT` | 5/min, 20/day per IP | `packages/security` | abuse prevention | documented |
+| `SYMPTOM_CHECK_RATE_LIMIT` | 10/min, 50/day per IP | `packages/security` | Gemini cost control | documented |
+| `BLOOD_UPDATE_RATE_LIMIT` | 10/min per verified user | `packages/security` | write abuse prevention | documented |
+| `GEMINI_DAILY_QUOTA_GUARD` | 1500 req/day (global) | `packages/security/quotaGuard.ts` | free-tier cost circuit breaker | documented |
+| `ALERT_PROXIMITY_RADIUS_DEFAULT_M` | 2000 (bounds: 100–20,000) | `packages/geo`, `alert_subscriptions` check constraint | `ST_DWithin` default/ceiling | documented |
+| `DB_STATEMENT_TIMEOUT_S` | 5 | Supabase API role config | prevents runaway spatial queries | documented |
+| `FRONTEND_BUNDLE_BUDGET_KB` | < 180 KB gzip (shell) | `apps/web/vite.config.ts` bundle analyzer CI check | performance | implemented |
+| `MAP_TILE_URL_TEMPLATE` | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | `apps/web/src/features/map/tileLayer.ts` | basemap tile source; the one value to change when swapping tile providers (ADR-013) | documented |
+| `MAP_TILE_ATTRIBUTION` | `© OpenStreetMap contributors` | `apps/web/src/features/map/tileLayer.ts` | attribution control — required by the OSM tile usage policy, not optional styling | documented |
+| `MAP_TILE_MAX_ZOOM` | 19 | `apps/web/src/features/map/tileLayer.ts` | highest zoom the OSM standard style serves; requesting past it returns blank tiles | documented |
+| `CORS_ALLOWED_ORIGINS` | production Pages domain + PR preview pattern | `apps/api/wrangler.toml` (`CORS_ALLOWED_ORIGINS`, `CORS_PREVIEW_ORIGIN_SUFFIX` vars), read in `apps/api/src/config/cors.ts` | cross-origin write protection | implemented |
+| `API_CLIENT_TIMEOUT_MS` | 8000 | `apps/web/src/lib/apiClient.ts` | aborts a hung `apps/api` request instead of leaving a query pending indefinitely | implemented |
+| `POSTGIS_LOCAL_IMAGE` | `postgis/postgis:15-3.4` | `compose.yaml`, CI `services:` container | local + CI database parity with Supabase's Postgres 15 / PostGIS 3 (ADR-011) | implemented (`compose.yaml`, `ci.yml`'s `postgis-service` job) |
+| `ML_PYTHON_IMAGE` | `python:3.11-slim-bookworm` | `docker/ml.Dockerfile`, cron workflow `python-version` | reproducible ML runtime — identical dependency tree locally and on schedule | implemented (`ml.Dockerfile`, `cron-batch-predict.yml`) |
+| `POSTGRES_LOCAL_PORT` | 54322 (host) → 5432 (container) | `compose.yaml` | avoids collision with a host-installed Postgres; matches the Supabase CLI convention | implemented |
+| `WEB_IMAGE_BASE` | `nginxinc/nginx-unprivileged:1.27.2-alpine` | `apps/web/Dockerfile` | runtime base for the web image — non-root, listens on 8080 (ADR-012) | implemented |
+| `API_IMAGE_BASE` | `node:20.17.0-alpine3.20` | `apps/api/Dockerfile` (both stages) | build + runtime base for the API image | implemented |
+| `APP_CONTAINER_PORTS` | web 8080, api 8787 (in-container) | `apps/web/docker/default.conf.template`, `apps/api/server/node-server.ts`, `compose.yaml` | fixed in-container ports; host ports overridable via `WEB_PORT`/`API_PORT` | implemented |
+| `CONTAINER_REGISTRY` | `ghcr.io/<owner>/avash-web`, `ghcr.io/<owner>/avash-api` | `.github/workflows/build-images.yml` | published image names; `sha-<short>` tags, plus `latest` on `main` | implemented |
+
+`CORS_ALLOWED_ORIGINS`'s value in `apps/api/wrangler.toml` is currently
+the placeholder `https://avash.pages.dev` — no real Cloudflare Pages
+project domain has been assigned yet. Update all three `[vars]` blocks in
+`wrangler.toml` (top-level, `env.preview`, `env.production`) once the
+real domain exists; nothing else needs to change since the code reads the
+vars, never a hardcoded literal.
+
+That is 32 rows covering all 33 named constants from §14 — one row,
+`MIN_RECALL_TARGET`/`MIN_PRECISION_TARGET`, carries two names, matching
+how §14 itself pairs them. (Rows whose *value* is a pair, such as the
+per-window rate limits and `PREDICTION_HORIZONS_WEEKS`, are one constant
+each, not two.) `API_CLIENT_TIMEOUT_MS`
+was added with the frontend/backend integration per R9 — new constant,
+added to both this table and `PROJECT_PLAN.md` §14 in the same change that
+introduced its use in `apiClient.ts`. The three container pins
+(`POSTGIS_LOCAL_IMAGE`, `ML_PYTHON_IMAGE`, `POSTGRES_LOCAL_PORT`) were
+added with the local Docker infrastructure (ADR-011) for the same reason:
+an image tag that drifts silently is exactly the failure R9 exists to
+prevent — a migration suite passing against a different database engine
+than the one it will deploy to. Bumping either image means changing the
+pin here, in §14, in `compose.yaml`/`docker/ml.Dockerfile`, and in the CI
+job that mirrors it, in one PR.
+
+The four app-image rows (`WEB_IMAGE_BASE`, `API_IMAGE_BASE`,
+`APP_CONTAINER_PORTS`, `CONTAINER_REGISTRY`) arrive with ADR-012 and are
+`documented` until the Dockerfiles and `build-images.yml` exist. The port
+row matters more than it looks: 8080 and 8787 appear in the nginx server
+block, the Node entry's `PORT` default, `compose.yaml`, both `HEALTHCHECK`
+lines, and the CSP the web image serves — five places that must agree, and
+five places where a bare literal would drift.
+
+The three map rows (`MAP_TILE_URL_TEMPLATE`, `MAP_TILE_ATTRIBUTION`,
+`MAP_TILE_MAX_ZOOM`) arrive with ADR-013 and are `documented` until the
+risk-map slice builds the tile layer. They are registry constants rather
+than environment variables on purpose: OpenStreetMap tiles need no
+credential, so these values are identical in every environment and secret
+in none — an env var would imply a per-environment difference that does
+not exist. `MAP_TILE_URL_TEMPLATE` is also the seam ADR-013 relies on:
+changing the tile provider is an edit to this one row plus the CSP
+`img-src` entry, and nothing else.
+
+## The rule
+
+A number hardcoded anywhere in the codebase (a route handler, a migration,
+a config file, a test) must appear in this table **and**
+`docs/PROJECT_PLAN.md` §14 before it is used. If a task needs a new
+constant that isn't here, add the row to both places in the same change —
+do not introduce a bare literal and document it "later."
+
+## Flipping a row to `implemented`
+
+A row's `Status` flips to `implemented` once the constant is actually read
+from its documented location in shipped code (not just referenced in a
+comment or a doc). The PR that wires it in records the flip in the same
+change. Expected flip points:
+
+- `FRONTEND_BUNDLE_BUDGET_KB` — frontend scaffold (bundle budget CI check).
+- `RISK_LEVEL_BANDS`, `ALERT_PROXIMITY_RADIUS_DEFAULT_M`,
+  `DB_STATEMENT_TIMEOUT_S`, `MV_REFRESH_INTERVAL` — database schema build-out.
+- `CORS_ALLOWED_ORIGINS` — backend scaffold.
+- `MAP_TILE_URL_TEMPLATE`, `MAP_TILE_ATTRIBUTION`, `MAP_TILE_MAX_ZOOM` —
+  the risk-map slice, when the Leaflet tile layer is built (ADR-013).
+- The remaining ML, rate-limit, and cadence constants flip as their owning
+  vertical slice ships (`docs/PROJECT_PLAN.md` §13, slices 3, 4, 5, 7).
