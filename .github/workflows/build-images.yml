@@ -1,29 +1,30 @@
 name: build-images
 
+# hadolint + build + Trivy + smoke test + publish for the two app images
+# (ADR-012). Called by pipeline.yml as the stage between the gates and the
+# deploys: nothing deploys until an image of the same commit has been built
+# and scanned clean.
+#
+# Publishing is decided by the caller, not by inspecting `github.ref` here
+# — a reusable workflow that reads the event it was called from is a
+# workflow with two sources of truth.
+
 on:
-  pull_request:
-    paths:
-      - "apps/**"
-      - "packages/**"
-      - "docker/**"
-      - "compose.yaml"
-      - ".dockerignore"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/build-images.yml"
-  push:
-    branches: [main]
-  # A base image accumulates CVEs while the Dockerfile sits untouched, so
-  # a path-filtered trigger alone would go permanently quiet.
-  schedule:
-    - cron: "0 4 * * 1"
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      publish:
+        description: Push the built images to GHCR. False for pull requests.
+        type: boolean
+        required: false
+        default: false
+      channel:
+        description: '"production" (main) or "preview" (dev / PR) — decides the moving tag.'
+        type: string
+        required: false
+        default: preview
 
 permissions:
   contents: read
-
-concurrency:
-  group: build-images-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -68,9 +69,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/avash-${{ matrix.app }}
+          # `sha-<short>` is the immutable handle every consumer should
+          # pin to. The moving tag tracks the channel: `latest` follows
+          # main, `dev` follows the integration branch.
           tags: |
             type=sha,prefix=sha-,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ inputs.channel == 'production' }}
+            type=raw,value=dev,enable=${{ inputs.channel == 'preview' }}
 
       # Build locally first. Nothing reaches the registry until the scan
       # and the smoke test have both passed.
@@ -87,6 +92,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # `output:` writes the report before the non-zero exit is applied,
+      # so one scan both gates the build and feeds the weekly CVE report
+      # (pipeline.yml's cve-report job). Still hard-fail: `exit-code: 1`.
       - name: Scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -94,6 +102,17 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          format: table
+          output: trivy-${{ matrix.app }}.txt
+
+      - name: Upload this image's scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-${{ matrix.app }}
+          path: trivy-${{ matrix.app }}.txt
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Smoke test
         run: |
@@ -119,7 +138,7 @@ jobs:
           docker rm -f smoke
 
       - name: Log in to GHCR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: inputs.publish
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -127,7 +146,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: inputs.publish
         uses: docker/build-push-action@v6
         with:
           context: .

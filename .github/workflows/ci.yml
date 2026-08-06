@@ -3,59 +3,77 @@ name: ci
 # Enforces docs/PROJECT_PLAN.md §11's merge gate list. No step here may use
 # `continue-on-error` or `|| true` — a failing gate must fail the run
 # (docs/standards/git-workflow.md).
+#
+# Called by pipeline.yml, never triggered directly: this is the first stage
+# of a single gated graph (gates -> image build+scan -> deploy), and a
+# trigger of its own would double every run. Triggers, concurrency and
+# branch routing all live in the caller.
+#
+# The gates run as concurrent jobs rather than as sequential steps in one
+# job. §11 fixes the *dependency* order (a bundle budget check needs a
+# build), not a total order — lint has no reason to wait on typecheck.
+# Each job re-installs, which is cheap against the warm pnpm store the
+# composite action maintains.
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   # docs/PROJECT_PLAN.md §14 — frontend shell bundle budget.
   FRONTEND_BUNDLE_BUDGET_KB: 180
 
 jobs:
-  # lint -> typecheck -> test -> build (§11 order). packages/*'s and
-  # apps/api's Playwright specs need no browser and no built dist/, so they
-  # run inside `pnpm test` before `pnpm build`; only apps/web's end-to-end
-  # stage needs the production build, so it runs as its own job below
-  # against the artifact this job produces.
-  verify:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-workspace
+      - name: Lint (zero errors, zero warnings)
+        run: pnpm lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-workspace
+      - name: Typecheck
+        run: pnpm typecheck
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-workspace
+      - name: Unused exports (ts-prune)
+        run: pnpm dlx ts-prune --error
+      - name: No internal planning references (CONTRIBUTING.md § Terminology)
+        run: node scripts/check-internal-refs.mjs
+
+  # packages/*'s and apps/api's Playwright specs need no browser and no
+  # built dist/, so they do not wait on `build`. Only apps/web's end-to-end
+  # stage needs the production build — that is `e2e-web`, below.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-workspace
+      - name: Test (Playwright — packages/* and apps/api; no browser fixture)
+        run: pnpm test
+
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v5
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint (zero errors, zero warnings)
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Unused exports (ts-prune)
-        run: pnpm dlx ts-prune --error
-
-      - name: No internal planning references (CONTRIBUTING.md § Terminology)
-        run: node scripts/check-internal-refs.mjs
-
-      - name: Test (Playwright — packages/* and apps/api; no browser fixture)
-        run: pnpm test
+      - uses: ./.github/actions/setup-workspace
 
       - name: Build
         run: pnpm build
@@ -73,21 +91,13 @@ jobs:
           retention-days: 1
 
   e2e-web:
-    needs: verify
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v5
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
 
       - uses: actions/download-artifact@v4
         with:
@@ -132,14 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v5
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
 
       - name: Build the API container image
         run: docker build -f apps/api/Dockerfile -t avash-api:ci .

@@ -1,23 +1,35 @@
 name: deploy-api
 
-# `wrangler deploy` for apps/api on merge to main (docs/PROJECT_PLAN.md
-# §11). Secrets are injected from GitHub Actions secrets via `wrangler
-# secret put`, never committed (R2). Guarded on token presence like
-# deploy-web.yml — no-ops cleanly when Cloudflare is not yet configured.
-# A post-deploy smoke test against the live /health endpoint fails the job
-# if the deploy did not actually come up healthy.
+# `wrangler deploy` for apps/api (docs/PROJECT_PLAN.md §11). Secrets are
+# injected from GitHub Actions secrets via `wrangler secret put`, never
+# committed (R2). Guarded on token presence like deploy-web.yml — no-ops
+# cleanly when Cloudflare is not yet configured. A post-deploy smoke test
+# against the live /health endpoint fails the job if the deploy did not
+# actually come up healthy.
+#
+# Called by pipeline.yml only after every gate and the image scan are
+# green. Which Worker environment it targets is the caller's decision,
+# passed in as `wrangler_env` — the environments themselves are declared
+# in apps/api/wrangler.toml.
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      wrangler_env:
+        description: >-
+          wrangler environment from apps/api/wrangler.toml: "production"
+          (main) or "preview" (dev).
+        type: string
+        required: true
+      smoke_test_origin_var:
+        description: >-
+          Name of the repository variable holding the deployed Worker's
+          origin for the post-deploy smoke test.
+        type: string
+        required: true
 
 permissions:
   contents: read
-
-concurrency:
-  group: deploy-api-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -26,14 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v5
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
 
       - run: pnpm --filter api typecheck
 
@@ -53,14 +58,14 @@ jobs:
             echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set — skipping deploy. See docs/ci-cd.md."
           fi
 
-      - name: Deploy to Cloudflare Workers (production)
+      - name: Deploy to Cloudflare Workers
         if: steps.cf-check.outputs.configured == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: deploy --env production
+          command: deploy --env ${{ inputs.wrangler_env }}
           secrets: |
             SUPABASE_SERVICE_ROLE_KEY
             SUPABASE_JWT_SECRET
@@ -76,13 +81,17 @@ jobs:
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
 
+      # The caller names which repository variable holds this
+      # environment's origin, so production and preview smoke-test
+      # themselves rather than both pointing at production.
       - name: Post-deploy smoke test
         if: steps.cf-check.outputs.configured == 'true'
         env:
-          API_ORIGIN: ${{ vars.PRODUCTION_API_ORIGIN }}
+          API_ORIGIN: ${{ vars[inputs.smoke_test_origin_var] }}
+          ORIGIN_VAR_NAME: ${{ inputs.smoke_test_origin_var }}
         run: |
           if [ -z "$API_ORIGIN" ]; then
-            echo "::error::PRODUCTION_API_ORIGIN repository variable is not set — cannot smoke test the deploy."
+            echo "::error::$ORIGIN_VAR_NAME repository variable is not set — cannot smoke test the deploy."
             exit 1
           fi
           status=$(curl -s -o /dev/null -w '%{http_code}' "$API_ORIGIN/health")

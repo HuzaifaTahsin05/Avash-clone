@@ -8,6 +8,7 @@
 | `fix/<issue>` | Bug fix, no behavior addition |
 | `docs/<area>` | Documentation-only change |
 | `sec/<finding>` | Security fix or hardening pass |
+| `ci/<area>` | CI/CD workflow or pipeline change |
 
 ## Conventional Commits
 
@@ -55,7 +56,8 @@ build on within the same work session).
 
 ## Merge gate list (§11)
 
-CI (`ci.yml`) fails the build — and therefore blocks merge — on:
+CI (`ci.yml`, called by `pipeline.yml`) fails the build — and therefore
+blocks merge — on:
 
 1. Any ESLint error **or warning** (`--max-warnings=0`).
 2. Any TypeScript error.
@@ -68,6 +70,13 @@ CI (`ci.yml`) fails the build — and therefore blocks merge — on:
 7. Any failing Playwright spec (`packages/*`, `apps/api`, or `apps/web`)
    — no `continue-on-error`, no `|| true` anywhere in any workflow.
 
-`deploy-web.yml` and `deploy-api.yml` only run after `ci.yml` is green on
-`main`; neither deploy workflow re-runs the test suite, so a merge to
-`main` is the last point at which these gates can catch a regression.
+`deploy-web.yml` and `deploy-api.yml` only run after `ci.yml` and
+`codeql.yml` are green **and** both container images have been built and
+scanned clean. That is a real `needs:` edge in `pipeline.yml`, not a
+convention — the deploy jobs cannot start until every gate above has
+passed. It was previously only a convention: each workflow carried its own
+`push: [main]` trigger, so a deploy could and did ship while the suite was
+still running.
+
+Neither deploy workflow re-runs the test suite, so the pipeline run on the
+merge commit is the last point at which these gates can catch a regression.

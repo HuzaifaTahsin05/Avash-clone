@@ -1,0 +1,245 @@
+name: pipeline
+
+# The single entrypoint for pull requests and for pushes to main and dev.
+# Everything else under .github/workflows/ is either called from here
+# (`on: workflow_call`) or is a standalone scheduled job (the cron-*
+# workflows).
+#
+# WHY ONE WORKFLOW: `needs:` only sequences jobs inside a single workflow.
+# While ci.yml, build-images.yml and the two deploy workflows each carried
+# their own `push: [main]` trigger they ran as four independent races — a
+# deploy could ship while the suite was still running, or after it had
+# already failed, which is exactly what docs/standards/git-workflow.md
+# claimed could not happen. Composing them as reusable workflows here
+# turns that claim into a real edge in the graph:
+#
+#   ci + codeql  ->  images + ml-image  ->  deploy-web + deploy-api
+#
+# `workflow_run` would also sequence them, but it reports no status on the
+# pull request and always executes the default branch's copy of the
+# workflow — meaning a change to the pipeline could never be tested by the
+# pull request making it. Reusable workflows resolve to the caller's own
+# commit, so this file tests itself.
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+  # A base image accumulates CVEs while the Dockerfile sits untouched, so
+  # the gates and image scans need a heartbeat of their own. The weekly
+  # run publishes the CVE report below; it never deploys.
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  # Superseding a pull request run is free. Cancelling a run that has
+  # reached the deploy stage is not — it can leave a half-applied
+  # `wrangler deploy` behind.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Branch -> channel resolution, once, in one place. Without this every
+  # downstream job re-derives "am I production?" from github.ref and they
+  # drift apart the first time one of them is edited alone.
+  context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      channel: ${{ steps.resolve.outputs.channel }}
+      publish: ${{ steps.resolve.outputs.publish }}
+      deploy_web: ${{ steps.resolve.outputs.deploy_web }}
+      deploy_api: ${{ steps.resolve.outputs.deploy_api }}
+      pages_branch: ${{ steps.resolve.outputs.pages_branch }}
+      wrangler_env: ${{ steps.resolve.outputs.wrangler_env }}
+      origin_var: ${{ steps.resolve.outputs.origin_var }}
+    steps:
+      - id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+
+          # Defaults are the safe ones: preview channel, publish nothing,
+          # deploy nothing. A branch has to be named below to earn more.
+          channel=preview
+          publish=false
+          deploy_web=false
+          deploy_api=false
+          pages_branch="$HEAD_REF"
+          wrangler_env=preview
+          origin_var=PREVIEW_API_ORIGIN
+
+          case "$EVENT" in
+            pull_request)
+              # Pages preview per pull request, keyed on the source branch.
+              # No Worker deploy — a pull request has no environment of its
+              # own to deploy an API into.
+              deploy_web=true
+              ;;
+            push | workflow_dispatch)
+              case "$REF_NAME" in
+                main)
+                  channel=production
+                  publish=true
+                  deploy_web=true
+                  deploy_api=true
+                  pages_branch=main
+                  wrangler_env=production
+                  origin_var=PRODUCTION_API_ORIGIN
+                  ;;
+                dev)
+                  publish=true
+                  deploy_web=true
+                  deploy_api=true
+                  pages_branch=dev
+                  ;;
+                *)
+                  echo "::notice::$REF_NAME is not a deploy branch — gates and image scans only."
+                  ;;
+              esac
+              ;;
+            schedule)
+              echo "::notice::Scheduled sweep — gates and image scans only, no publish, no deploy."
+              ;;
+          esac
+
+          {
+            echo "channel=$channel"
+            echo "publish=$publish"
+            echo "deploy_web=$deploy_web"
+            echo "deploy_api=$deploy_api"
+            echo "pages_branch=$pages_branch"
+            echo "wrangler_env=$wrangler_env"
+            echo "origin_var=$origin_var"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  # ---- Stage 1: gates. Nothing is built for release until these pass. ----
+
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  codeql:
+    # Granted at the call site: a called workflow can never hold more
+    # permission than its caller job hands it.
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: ./.github/workflows/codeql.yml
+
+  # ---- Stage 2: build and scan the images. ----
+
+  images:
+    needs: [context, ci, codeql]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-images.yml
+    with:
+      publish: ${{ needs.context.outputs.publish == 'true' }}
+      channel: ${{ needs.context.outputs.channel }}
+
+  ml-image:
+    needs: [ci, codeql]
+    uses: ./.github/workflows/docker-image-scan.yml
+
+  # ---- Stage 3: deploy. Reached only through both stages above. ----
+
+  deploy-web:
+    needs: [context, images, ml-image]
+    if: needs.context.outputs.deploy_web == 'true'
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/deploy-web.yml
+    secrets: inherit
+    with:
+      pages_branch: ${{ needs.context.outputs.pages_branch }}
+
+  deploy-api:
+    needs: [context, images, ml-image]
+    if: needs.context.outputs.deploy_api == 'true'
+    uses: ./.github/workflows/deploy-api.yml
+    secrets: inherit
+    with:
+      wrangler_env: ${{ needs.context.outputs.wrangler_env }}
+      smoke_test_origin_var: ${{ needs.context.outputs.origin_var }}
+
+  # ---- The weekly CVE report. ----
+  #
+  # One rolling artifact rather than a per-run pile: the same name every
+  # week, overwritten in place, so "what CVEs do our images have right
+  # now" is a single download and never a question of which run to open.
+  #
+  # `if: always()` because the run whose scans FAILED is precisely the run
+  # whose report is worth reading. This reports, it does not soften — the
+  # Trivy steps upstream keep `exit-code: 1`, so a HIGH/CRITICAL finding
+  # still fails its image job and still blocks every deploy.
+  cve-report:
+    needs: [images, ml-image]
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: scan-*
+          path: scans
+          merge-multiple: true
+
+      - name: Assemble the report
+        env:
+          IMAGES_RESULT: ${{ needs.images.result }}
+          ML_RESULT: ${{ needs.ml-image.result }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "# Container image CVE report"
+            echo
+            echo "- Generated: $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- App image jobs: \`${IMAGES_RESULT}\` — ML image job: \`${ML_RESULT}\`"
+            echo
+            echo "Scanned at HIGH,CRITICAL with unfixed vulnerabilities ignored,"
+            echo "matching the gate that runs on every pull request."
+            echo
+          } > cve-report.md
+
+          shopt -s nullglob
+          reports=(scans/trivy-*.txt)
+          if [ ${#reports[@]} -eq 0 ]; then
+            echo "No scan reports were produced — every image job failed before Trivy ran." >> cve-report.md
+          else
+            for f in "${reports[@]}"; do
+              name=$(basename "$f" .txt)
+              name=${name#trivy-}
+              {
+                echo "## avash-${name}"
+                echo
+                echo '```'
+                cat "$f"
+                echo '```'
+                echo
+              } >> cve-report.md
+            done
+          fi
+
+          cat cve-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cve-report
+          path: cve-report.md
+          # Without this, v4 fails the upload rather than replacing the
+          # previous week's artifact of the same name.
+          overwrite: true
+          retention-days: 90

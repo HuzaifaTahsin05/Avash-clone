@@ -7,20 +7,88 @@ the container story (building and running images on your own machine);
 this document owns the *CI* half — the same images built, scanned, and run
 inside GitHub Actions.
 
+## The pipeline
+
+`pipeline.yml` is the **only** entrypoint for pull requests and for pushes to
+`main` and `dev`. Everything else under `.github/workflows/` is either called
+from it (`on: workflow_call`, no trigger of its own) or is a standalone
+scheduled cron job.
+
+```
+context ─┬─ ci ──────────┬─ images ───┬─ deploy-web
+         └─ codeql ──────┴─ ml-image ─┴─ deploy-api
+                                      └─ cve-report (weekly only)
+```
+
+Each arrow is a real `needs:` edge. Nothing is published to GHCR until every
+gate is green, and nothing deploys until the images are built and scanned
+clean. This is a change from the earlier layout, where `ci.yml`,
+`build-images.yml` and the two deploy workflows each carried their own
+`push: [main]` trigger and therefore raced each other — a deploy could ship
+while the test suite was still running, or after it had already failed.
+
+`needs:` only sequences jobs *within* one workflow, which is why the stages are
+reusable workflows composed by a caller rather than four independent files.
+`workflow_run` was rejected for the job: it reports no status on the pull
+request and always runs the default branch's copy of the workflow, so a change
+to the pipeline could never be tested by the pull request making it.
+
+### What each branch does
+
+| Trigger | Gates | Images | Pages | Worker |
+|---|---|---|---|---|
+| Pull request | ✅ | built + scanned, **not** published | preview (`--branch=<head-ref>`) | — |
+| Push to `dev` | ✅ | published, tagged `sha-<short>` + `dev` | preview (`--branch=dev`) | `--env preview` (`avash-api-preview`) |
+| Push to `main` | ✅ | published, tagged `sha-<short>` + `latest` | production (`--branch=main`) | `--env production` |
+| Weekly schedule | ✅ | built + scanned, not published | — | — |
+
+Branch → channel is resolved once, in `pipeline.yml`'s `context` job, and
+passed down as workflow inputs. No downstream job re-derives it from
+`github.ref`.
+
 ## Workflow index
 
 | Workflow | Triggers | Purpose |
 |---|---|---|
-| `ci.yml` | PR, push to `main` | Lint → typecheck → test → build → `apps/web` end-to-end; the `api-container-parity` and `postgis-service` jobs (§11) |
-| `codeql.yml` | PR, push to `main`, weekly, manual | SAST across `javascript-typescript` and `python` |
-| `docker-image-scan.yml` | PR touching `docker/**`/`compose.yaml`/`ml/requirements.txt`, push to `main`, weekly, manual | hadolint + Trivy on the ML image (ADR-011) |
-| `build-images.yml` | PR touching app/package/docker paths, push to `main`, weekly, manual | hadolint + build + Trivy + smoke test + publish for `apps/web`/`apps/api` images (ADR-012) |
-| `deploy-web.yml` | PR (preview), push to `main` (production) | Cloudflare Pages deploy for `apps/web` |
-| `deploy-api.yml` | push to `main`, manual | `wrangler deploy` for `apps/api` + post-deploy smoke test |
+| `pipeline.yml` | PR, push to `main`/`dev`, weekly, manual | **The entrypoint.** Composes every stage below and owns all sequencing, concurrency and branch routing |
+| `ci.yml` | called | Gates as concurrent jobs: `lint`, `typecheck`, `static-analysis`, `test`, `build` → `e2e-web`, plus `api-container-parity` and `postgis-service` (§11) |
+| `codeql.yml` | called | SAST across `javascript-typescript` and `python` — see § The SAST gate |
+| `build-images.yml` | called | hadolint + build + Trivy + smoke test + publish for `apps/web`/`apps/api` images (ADR-012) |
+| `docker-image-scan.yml` | called | hadolint + Trivy on the ML image (ADR-011) |
+| `deploy-web.yml` | called | Cloudflare Pages deploy for `apps/web`; target branch passed in as `pages_branch` |
+| `deploy-api.yml` | called | `wrangler deploy` for `apps/api` + post-deploy smoke test; environment passed in as `wrangler_env` |
 | `cron-weather-ingest.yml` | schedule (every 3h), manual | Runs `scripts/jobs/weather-ingest.ts` directly against Supabase (ADR-007) |
 | `cron-batch-predict.yml` | schedule (every 24h), manual | Runs `ml/serving/predict.py` directly against Supabase (ADR-002, ADR-007) |
 | `cron-news-scan.yml` | schedule (every 6h), manual | Runs `scripts/jobs/news-scan.ts` directly against Supabase (ADR-007) |
-| `dependabot.yml` | scheduled by GitHub | Weekly dependency PRs: npm (11 workspaces), pip (`ml/`), github-actions, docker (`docker/`, `apps/web`, `apps/api`) |
+| `dependabot.yml` | scheduled by GitHub | One grouped weekly PR per ecosystem: npm (root + `apps/*` + `packages/*`), pip (`ml/`), github-actions, docker |
+
+`.github/actions/setup-workspace` is the composite action every Node job uses
+for pnpm + Node 24 + `pnpm install --frozen-lockfile` + the turbo cache. The
+toolchain version is declared there and nowhere else. Splitting the gates into
+concurrent jobs means each one pays for its own install, which is only cheap
+because the pnpm store restores from cache — if that cache stops working, the
+concurrency stops paying for itself.
+
+## Dependency updates
+
+Dependabot runs four grouped updates, one pull request each per week, rather
+than one pull request per package per directory. The npm entry covers the root
+plus `apps/*` and `packages/*` in a single group, which is the point: Dependabot
+resolves "latest" per directory independently, so a package pinned in several
+manifests used to arrive as several uncoordinated pull requests — the cause of
+`zod` bumping in `packages/types` and `apps/api` but not `apps/web`, `react`
+bumping without `react-dom`, and `typescript` opening against two different
+majors at once.
+
+Majors are deliberately inside the group. The usual advice is to separate them,
+and the trade-off is real — a breaking major arrives alongside routine patches
+and the group reverts as a unit. It is accepted here because this repo pins the
+same packages across up to eleven manifests, and an ungrouped major is precisely
+the update that lands in one manifest and not the others. **Review the group;
+do not rubber-stamp it.**
+
+Merge Dependabot pull requests with squash-merge so each grouped update becomes
+one commit.
 
 None of the three cron workflows exposes an HTTP trigger (R7/ADR-007), and
 all three currently no-op with a `::notice::` because their target job
@@ -54,7 +122,8 @@ lacking a credential it was never given.
 | `VITE_PUBLIC_SUPABASE_ANON_KEY` | repository **variable** | `deploy-web.yml` | Building `apps/web` for Pages |
 | `VITE_PUBLIC_TURNSTILE_SITE_KEY` | repository **variable** | `deploy-web.yml` | Building `apps/web` for Pages |
 | `VITE_PUBLIC_VAPID_PUBLIC_KEY` | repository **variable** | `deploy-web.yml` | Building `apps/web` for Pages |
-| `PRODUCTION_API_ORIGIN` | repository **variable** | `deploy-api.yml` | Post-deploy smoke test target |
+| `PRODUCTION_API_ORIGIN` | repository **variable** | `deploy-api.yml` | Post-deploy smoke test target for `main` |
+| `PREVIEW_API_ORIGIN` | repository **variable** | `deploy-api.yml` | Post-deploy smoke test target for `dev` — the `avash-api-preview` Worker's origin |
 | `PUBLIC_API_BASE_URL` | repository **variable** | `build-images.yml` | Build arg for the *published* web image — see the gap noted below |
 
 Every server-only value here matches `docs/security/secrets-matrix.md`
@@ -74,7 +143,7 @@ set each one per § Setting these in GitHub, below.
 | `TURNSTILE_SECRET_KEY`, `VITE_PUBLIC_TURNSTILE_SITE_KEY` | secrets-matrix.md § 5 Cloudflare Turnstile |
 | *(map tiles)* | Nothing to obtain — the map uses credential-free OpenStreetMap tiles (secrets-matrix.md § 6, ADR-013). Listed here so its absence reads as deliberate, not as an omission |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VITE_PUBLIC_VAPID_PUBLIC_KEY` | secrets-matrix.md § 7 Web Push VAPID keypair |
-| `VITE_PUBLIC_API_BASE_URL`, `PRODUCTION_API_ORIGIN`, `PUBLIC_API_BASE_URL` | secrets-matrix.md § 8 — not a third-party credential, it's your own deployed Worker's origin |
+| `VITE_PUBLIC_API_BASE_URL`, `PRODUCTION_API_ORIGIN`, `PREVIEW_API_ORIGIN`, `PUBLIC_API_BASE_URL` | secrets-matrix.md § 8 — not a third-party credential, it's your own deployed Worker's origin |
 | `GITHUB_TOKEN` | Built in; GitHub injects it automatically, nothing to obtain |
 
 `VITE_PUBLIC_*` repository variables need no separate provider trip beyond
@@ -166,6 +235,7 @@ gh variable set VITE_PUBLIC_SUPABASE_ANON_KEY --body "<anon-key-from-supabase-se
 gh variable set VITE_PUBLIC_TURNSTILE_SITE_KEY --body "<site-key-from-cloudflare-turnstile>"
 gh variable set VITE_PUBLIC_VAPID_PUBLIC_KEY --body "<public-half-of-the-vapid-keypair>"
 gh variable set PRODUCTION_API_ORIGIN --body "https://your-api.example.workers.dev"
+gh variable set PREVIEW_API_ORIGIN --body "https://avash-api-preview.<subdomain>.workers.dev"
 gh variable set PUBLIC_API_BASE_URL --body "https://your-api.example.workers.dev"
 ```
 
@@ -267,9 +337,7 @@ Current scheduled load, assuming a 30-day month:
 | `cron-weather-ingest.yml` | every 3h | ~240 | The dominant cost by run count |
 | `cron-news-scan.yml` | every 6h | ~120 | |
 | `cron-batch-predict.yml` | daily | ~30 | |
-| `codeql.yml` | weekly (+ every PR) | ~4 scheduled | Two-language matrix, so two jobs per run |
-| `docker-image-scan.yml` | weekly (+ path-filtered PRs) | ~4 scheduled | |
-| `build-images.yml` | weekly (+ PRs touching app paths) | ~4 scheduled | Two-app matrix, so two jobs per run |
+| `pipeline.yml` | weekly (+ every PR and push to `main`/`dev`) | ~4 scheduled | Fans out to every gate and both image matrices, so a scheduled run is ~15 jobs |
 
 All three cron jobs currently exit at their stub guard without doing any
 work. That guard is deliberately placed **before** toolchain setup and
@@ -312,17 +380,18 @@ gh workflow enable cron-weather-ingest.yml  # resume
 To pause every scheduled job in one step:
 
 ```bash
-for wf in cron-weather-ingest cron-news-scan cron-batch-predict \
-          codeql docker-image-scan build-images; do
+for wf in cron-weather-ingest cron-news-scan cron-batch-predict; do
   gh workflow disable "$wf.yml"
 done
 ```
 
-Note that disabling `codeql.yml`, `docker-image-scan.yml`, or
-`build-images.yml` also disables their pull-request triggers, not just the
-weekly schedule — those are merge gates, so pausing them weakens review
-rather than only saving minutes. Prefer pausing only the three `cron-*`
-workflows.
+Only the three `cron-*` workflows belong in that list. Disabling
+`pipeline.yml` would take down every merge gate along with the weekly sweep —
+it is the entrypoint, not a scheduled job that happens to also run on pull
+requests. To drop only its weekly run, comment out its `schedule:` block per
+the next section. The called workflows (`ci.yml`, `codeql.yml`,
+`build-images.yml`, `docker-image-scan.yml`, `deploy-*.yml`) have no triggers
+of their own, so disabling them individually does nothing.
 
 ### Pausing only the schedule, keeping manual runs
 
@@ -388,14 +457,16 @@ A run triggered manually does not reset that timer; a commit does.
   runs the equivalent `create extension if not exists postgis;` /
   `pgcrypto;` idempotently instead, then asserts both are present.
 - **`docker-image-scan.yml`** — hadolint against `docker/ml.Dockerfile`,
-  then a build + Trivy scan of the resulting ML image. Triggers on paths
-  that can change the image (`docker/**`, `compose.yaml`,
-  `ml/requirements.txt`) plus a weekly schedule, since a base image
-  accumulates CVEs with no Dockerfile change of its own.
+  then a build + Trivy scan of the resulting ML image. It used to carry
+  path-filtered triggers of its own; those are gone, because §11 counts an
+  ML-image Trivy finding as build-failing and a gate that only evaluates
+  when someone happened to touch `docker/` is not a gate. The buildx GHA
+  cache is what keeps running it every time affordable.
 - **`build-images.yml`** — the same two gates (hadolint, Trivy) plus a
   smoke test, applied to `apps/web/Dockerfile` and `apps/api/Dockerfile`.
   Publishing to GHCR only happens after both the scan and the smoke test
-  pass, and only on push to `main` — never from a pull request.
+  pass, and only when the caller sets `publish: true` — that is, on a push
+  to `main` or `dev`, never from a pull request.
 - **`api-container-parity`** (`ci.yml`) — builds `apps/api/Dockerfile`,
   starts it, and runs the *identical* `apps/api` Playwright suite against
   it with `API_TEST_TARGET=container`, using the same
@@ -405,6 +476,23 @@ A run triggered manually does not reset that timer; a commit does.
   fails against the container (Node) is a real divergence between
   runtimes, not a flake, and nothing may be skipped or marked
   `continue-on-error` to hide one.
+
+### The weekly CVE report
+
+The Monday `pipeline.yml` run publishes a `cve-report` artifact: the Trivy
+output for all three images (`avash-web`, `avash-api`, `avash-ml`) concatenated
+into one Markdown file, also written to the run's job summary so it is readable
+without downloading anything.
+
+It uses a **stable artifact name and `overwrite: true`**, so each week's sweep
+replaces the previous one in place. "What CVEs do our images have right now" is
+one download from the latest scheduled run, not a hunt through a pile of
+per-run artifacts. Retention is 90 days.
+
+The job runs `if: always()`, because the run whose scans *failed* is exactly the
+run whose report is worth reading. It is a report, not a softening — the Trivy
+steps that feed it keep `exit-code: 1`, so a HIGH/CRITICAL finding still fails
+its image job and still blocks every deploy.
 
 ### The Trivy-failure procedure
 
@@ -439,15 +527,51 @@ job fails on a real finding:
 
 | Gate | Enforced in |
 |---|---|
-| ESLint, zero errors/warnings | `ci.yml` → `verify` job, `pnpm lint` |
-| TypeScript, zero errors | `ci.yml` → `verify` job, `pnpm typecheck` |
-| Unused exports (`ts-prune`) | `ci.yml` → `verify` job |
-| Client bundle env-var scan | `ci.yml` → `verify` job, `scripts/scan-client-env.mjs` against built `apps/web/dist` |
-| Bundle budget (180 KB gzip) | `ci.yml` → `verify` job, `scripts/check-bundle-budget.mjs` |
-| Failing Playwright spec (any package) | `ci.yml` → `verify`, `e2e-web`, `api-container-parity` jobs |
-| CodeQL high/critical | `codeql.yml`, enforced via required status checks (branch protection) — the action itself annotates findings as code scanning alerts rather than exiting non-zero, so the repository's branch protection rule must require the `codeql` check to actually block merge |
+| ESLint, zero errors/warnings | `ci.yml` → `lint` job, `pnpm lint` |
+| TypeScript, zero errors | `ci.yml` → `typecheck` job, `pnpm typecheck` |
+| Unused exports (`ts-prune`) | `ci.yml` → `static-analysis` job |
+| No internal planning references | `ci.yml` → `static-analysis` job, `scripts/check-internal-refs.mjs` |
+| Client bundle env-var scan | `ci.yml` → `build` job, `scripts/scan-client-env.mjs` against built `apps/web/dist` |
+| Bundle budget (180 KB gzip) | `ci.yml` → `build` job, `scripts/check-bundle-budget.mjs` |
+| Failing Playwright spec (any package) | `ci.yml` → `test`, `e2e-web`, `api-container-parity` jobs |
+| CodeQL high/critical | `codeql.yml`, called by `pipeline.yml` — see § The SAST gate |
 | Model checksum mismatch | Not yet applicable — no ML artifact ships until the ML pipeline slice |
-| hadolint / Trivy | `docker-image-scan.yml`, `build-images.yml` |
+| hadolint / Trivy | `build-images.yml` (app images), `docker-image-scan.yml` (ML image) |
+
+Because every one of these is now a `needs:` ancestor of the deploy jobs, a red
+gate blocks the deploy by construction rather than by branch-protection
+configuration. Branch protection is still worth setting on `main` and `dev` to
+block the *merge button*, but it is no longer what stands between a failing test
+and production.
+
+**The required-status-check names changed.** They are now reported as
+`pipeline / ci / lint`, `pipeline / images / images (web)` and so on. Any branch
+protection rule still requiring the old `ci / verify` will silently match
+nothing — update the rules on `main` and `dev` after merging, or the gates stop
+being required at the merge button.
+
+## The SAST gate
+
+`codeql.yml` uploads its results to GitHub code scanning. That is available on
+**public repositories**, and on private ones **only with GitHub Advanced
+Security**. Without one of those, every run fails at the upload step with
+`Resource not accessible by integration` or `Code scanning is not enabled for
+this repository`.
+
+This is a repository-settings problem, not a workflow one — no `permissions:`
+block fixes it, and the workflow already declares the `security-events: write`
+it needs. Check with:
+
+```bash
+gh api repos/:owner/:repo/code-scanning/analyses
+```
+
+A `403` with "Code scanning is not enabled" means the gate cannot pass on that
+repository yet. Since CodeQL is a `needs:` ancestor of the image and deploy
+stages, that 403 blocks the whole pipeline — so on a private repository without
+Advanced Security, either enable it, or make the repository public, or the
+pipeline will not reach a deploy. Do **not** resolve it by adding
+`continue-on-error` (§11).
 
 ## Rollback procedure
 
