@@ -10,7 +10,7 @@
 # apps/web imports workspace packages (@avash/types) that live outside
 # apps/web, so a narrower context cannot install.
 
-FROM node:20.17.0-alpine3.20 AS build
+FROM node:24.1.0-alpine3.20 AS build
 WORKDIR /repo
 ENV CI=true
 
