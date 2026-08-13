@@ -50,9 +50,11 @@ scaffold.
   preview** (`pnpm preview`), not the dev server — `apps/web/playwright.config.ts`.
   `e2e/smoke.spec.ts` covers title/description rendering, the status
   panel, the client-side 404 route, and a zero-console-errors assertion
-  (collected via a `page.on('console'/'pageerror')` listener). Per the
-  testing standards doc's scope limit, this is Playwright-only — no
-  jsdom/React-Testing-Library component-unit layer was added.
+  (collected via a `page.on('console'/'pageerror')` listener). The shell
+  itself has no Vitest layer and does not need one: everything it does is
+  routing and rendering, which is exactly what `docs/standards/testing.md`
+  scopes *out* of the jsdom project. Vitest arrives for this app when the
+  first custom hook or pure client module does — not for component trees.
 
 **Critical Constants:**
 

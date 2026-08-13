@@ -61,17 +61,31 @@ Supabase, no Gemini, no Upstash call happens anywhere in this request path
   only non-secret `[vars]` entries with real values, and those values are
   currently the placeholder domain `avash.pages.dev`
   (`docs/constants-registry.md`) pending a real Cloudflare Pages project.
-- Tests live in `apps/api/test/`, mirroring `src/` (`test/routes/health.spec.ts`
+- Tests live in `apps/api/test/`, mirroring `src/` (`test/routes/health.test.ts`
   for `src/routes/health.ts`) — a dedicated top-level test directory, not
-  colocated with source, consistent with `apps/web/e2e/`. Written with
-  **Playwright**, not Vitest — `apps/api/playwright.config.ts` starts a
-  real `wrangler dev` instance (`webServer`) and every spec except the
-  error-boundary one issues a genuine HTTP request against it via the
-  `request` fixture, matching how `apps/web`'s specs test the production
-  preview rather than an in-process render. `apps/api` has a second
-  `tsconfig.test.json` alongside its primary `tsconfig.json` specifically
-  so Node's `process` global (needed by `playwright.config.ts`) never
-  leaks into the Worker source's type-checking (`docs/standards/backend.md`).
+  colocated with source, consistent with `apps/web/e2e/`. Coverage is split
+  across the two runners per `docs/standards/testing.md`:
+  - **Vitest, inside workerd** (`apps/api/test/**/*.test.ts`, via
+    `@cloudflare/vitest-pool-workers`) carries the exhaustive cases —
+    every status path, the full CORS allow/deny matrix, preflight, header
+    handling, and the error-boundary path. Running in workerd rather than
+    plain Node is the point: the app under test is the app that ships,
+    with the same globals and the same `Request`/`Response`.
+  - **Playwright, black-box over HTTP** (`apps/api/e2e/*.spec.ts`) carries
+    one representative assertion per boundary — health `200`, one CORS
+    rejection, one error shape — and runs against both `wrangler dev` and
+    the Node container image. That dual run is ADR-012's parity
+    obligation, not redundant coverage.
+
+  `apps/api` has a second `tsconfig.test.json` alongside its primary
+  `tsconfig.json` specifically so Node's ambient `process` global (needed
+  by `vitest.config.ts` and `playwright.config.ts`) never leaks into the
+  Worker source's type-checking (`docs/standards/backend.md`).
+
+  *Migration note:* these suites currently run entirely under
+  `@playwright/test` with `.spec.ts` filenames. The split above is the
+  target the test-architecture work moves them to; see the migration
+  status banner in `docs/standards/testing.md`.
 
 **Liveness vs. readiness:** `/health` is a **liveness** probe only — it
 answers "is the Worker running," not "is the database reachable." It
@@ -94,15 +108,15 @@ this file is rewritten to add it.
 - R7 (no background job as an HTTP endpoint): no route under
   `/api/jobs/*` exists; `/health` and the API index (`GET /`) are the only
   two mounted routes.
-- R10 (generic user-facing errors): proven with a dedicated Playwright
-  case (`test/routes/health.spec.ts`) that throws inside a handler and
-  asserts the response body contains neither the thrown message nor the
-  string `"stack"`, while the server-side `handleError()` call still
-  receives the full error and stack for logging. This one spec runs
-  in-process against a throwaway Hono instance rather than the live
-  `wrangler dev` server, since it would otherwise require a debug-only
-  route that deliberately throws to exist in the real, deployed app.
-- CORS allow-list proven with three Playwright cases issuing real HTTP
+- R10 (generic user-facing errors): proven with a dedicated case that
+  throws inside a handler and asserts the response body contains neither
+  the thrown message nor the string `"stack"`, while the server-side
+  `handleError()` call still receives the full error and stack for
+  logging. This belongs in the Vitest workerd project, where a throwaway
+  Hono instance is an ordinary in-process construction — the alternative
+  is a debug-only route that deliberately throws existing in the real,
+  deployed app, which is not acceptable.
+- CORS allow-list proven with three cases issuing real HTTP
   requests against `wrangler dev`: a disallowed origin
   (`https://evil.example`) gets no `Access-Control-Allow-Origin` header;
   the exact allowed origin (`https://avash.pages.dev`) gets the matching

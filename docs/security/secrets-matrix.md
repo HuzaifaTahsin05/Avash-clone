@@ -1,5 +1,9 @@
 # Secrets & Environment Matrix
 
+**Read when:** adding, renaming, rotating, or obtaining any environment variable or credential.
+
+**Decides:** What each variable is, where it may appear, and how to obtain and rotate it.
+
 Full environment variable inventory (`docs/PROJECT_PLAN.md` §7.1), with
 exposure classification, consumers, how to set each in each environment,
 and rotation procedure.
@@ -275,7 +279,7 @@ them — production and preview use the mechanisms in the next section.
 | `apps/web` (Cloudflare Pages), local dev | `apps/web/.env` (gitignored; copy from `.env.example`) — `VITE_PUBLIC_*` only |
 | `apps/web` (Cloudflare Pages), production/preview | `VITE_PUBLIC_*` vars only, set as Cloudflare Pages build environment variables (public by design — they end up in the client bundle regardless) |
 | Job scripts + `ml/`, local dev | root `.env` (gitignored; copy from `.env.example`) |
-| GitHub Actions (job scripts, CI, deploy workflows) | Repository-scoped **GitHub Actions secrets**, referenced as `${{ secrets.NAME }}`, injected as ephemeral env vars into the runner — `docs/ci-cd.md` § Setting these in GitHub covers why repository (not environment) scope |
+| GitHub Actions (job scripts, CI, deploy workflows) | **GitHub Actions secrets**, referenced as `${{ secrets.NAME }}`, injected as ephemeral env vars into the runner. Repository scope today; migrating to **environment** scope (`preview` / `production`), each holding its own separately-issued credential — step-by-step procedure in `docs/security/github-environments.md` |
 
 `wrangler.toml`'s `[vars]` block lists every required secret name as a
 **commented inventory only** — real values are never committed to the
@@ -289,7 +293,9 @@ repository under any circumstance (R2).
 2. Update the secret in every environment that consumes it, in this order,
    to avoid a window where the old credential is already revoked but the
    new one isn't live yet:
-   a. GitHub Actions secret (repository scope).
+   a. GitHub Actions secret (repository scope; once the environment split
+      lands, `preview` first and `production` only after preview is
+      verified healthy — `docs/security/github-environments.md` § Rotation).
    b. `wrangler secret put` for each Cloudflare Workers environment
       (`preview`, `production`).
    c. Cloudflare Pages build environment variable, for any `VITE_PUBLIC_*`

@@ -1,13 +1,34 @@
 {
   "project": "Avash",
   "sourceOfTruth": "docs/PROJECT_PLAN.md",
+  "canonicalRules": "AGENTS.md",
+  "agentsMdSha256": "0ca318f35103bb0d43652a5ed6d4ce34593d92704f201382396e89ae737a4e50",
+  "enforcement": "docs/standards/agent-compliance.md",
+  "appliesUnprompted": "Every contract below is in force whether or not the request mentions it. A task framed as 'just add the endpoint' does not waive the promotion path, the testing requirement, or the secrets rule. If this file disagrees with AGENTS.md, AGENTS.md wins and the disagreement is a bug to report.",
+  "universalForbidden": [
+    "Pushing a feature branch to any remote, opening a PR from one, or opening a PR into main from anything but dev (docs/standards/git-workflow.md)",
+    "Weakening a test, assertion, lint rule, coverage threshold, or manual-test description to force a gate green",
+    "Using --no-verify to bypass a git hook",
+    "Naming an internal planning artifact (milestone/phase number, task ID, execution-schedule filename) in anything that ships",
+    "Deploying, or running `wrangler secret put`, as a side effect of a coding task rather than an explicit request",
+    "Starting parallel or multi-agent work without a written cost estimate (context pressure, wall-clock, CI minutes, token spend) and the user explicit go-ahead — run scripts/estimate-parallel-cost.mjs, present the table, wait (AGENTS.md rule 11)",
+    "Hand-quoting model prices or context windows from memory or from a value written down in this repo — the estimator fetches them live and fails closed for a reason"
+  ],
   "agents": [
     {
       "role": "frontend-dev",
-      "scope": ["apps/web/**"],
+      "scope": [
+        "apps/web/**"
+      ],
       "mustFollow": [
-        "R1", "R2", "R3", "R4", "R6", "R10",
-        "docs/PROJECT_PLAN.md §9", "docs/PROJECT_PLAN.md §13",
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R6",
+        "R10",
+        "docs/PROJECT_PLAN.md §9",
+        "docs/PROJECT_PLAN.md §13",
         "docs/standards/frontend.md"
       ],
       "forbidden": [
@@ -17,14 +38,24 @@
         "Redefining a shared interface/DTO/zod schema instead of importing from packages/types",
         "Rendering a raw error message or stack trace to the user"
       ],
-      "definitionOfDone": "Feature implemented end-to-end against a real apps/api contract from packages/types; Playwright e2e spec added; docs/features/*.md updated (§12 template); three-pass manual test log completed; zero non-VITE_PUBLIC_ env references; lint/typecheck/build green."
+      "definitionOfDone": "Feature implemented end-to-end against a real apps/api contract from packages/types; Playwright e2e spec added (apps/web/e2e/*.spec.ts, real browser against the production preview); Vitest tests added for any new hook or pure client module (apps/web/src/**/*.test.ts, jsdom — not for component trees); docs/features/*.md updated (§12 template); three-pass manual test log completed; zero non-VITE_PUBLIC_ env references; lint/typecheck/test/build green."
     },
     {
       "role": "backend-dev",
-      "scope": ["apps/api/**"],
+      "scope": [
+        "apps/api/**"
+      ],
       "mustFollow": [
-        "R1", "R2", "R3", "R4", "R6", "R7", "R9", "R10",
-        "docs/PROJECT_PLAN.md §6", "docs/PROJECT_PLAN.md §7",
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R6",
+        "R7",
+        "R9",
+        "R10",
+        "docs/PROJECT_PLAN.md §6",
+        "docs/PROJECT_PLAN.md §7",
         "docs/standards/backend.md"
       ],
       "forbidden": [
@@ -35,14 +66,19 @@
         "Using a wildcard (*) CORS origin or matching origins with an unbounded regex on write routes",
         "Holding a long-lived direct Postgres connection instead of the Supavisor pooler"
       ],
-      "definitionOfDone": "Route implemented with zod validation on entry, wrapped in withErrorBoundary(), covered by Playwright tests against a live wrangler dev instance (success, failure, auth, CORS, rate-limit paths); docs/features/*.md updated; STRIDE vectors considered for any write-path change."
+      "definitionOfDone": "Route implemented with zod validation on entry, wrapped in withErrorBoundary(); exhaustive coverage in the Vitest workerd project (apps/api/test/**/*.test.ts via @cloudflare/vitest-pool-workers — success, failure, auth, full CORS matrix, preflight, rate-limit, error-boundary paths) plus ONE representative case per boundary in the Playwright contract suite (apps/api/e2e/*.spec.ts), which must pass against both wrangler dev and the Node container image; no assertion matrix mirrored across both layers; coverage thresholds met with no uncovered security-relevant branch; docs/features/*.md updated; STRIDE vectors considered for any write-path change."
     },
     {
       "role": "db-engineer",
-      "scope": ["packages/db/**"],
+      "scope": [
+        "packages/db/**"
+      ],
       "mustFollow": [
-        "R3", "R6", "R9",
-        "docs/PROJECT_PLAN.md §4", "docs/data-schema/schema.md",
+        "R3",
+        "R6",
+        "R9",
+        "docs/PROJECT_PLAN.md §4",
+        "docs/data-schema/schema.md",
         "docs/data-schema/rls-policies.md"
       ],
       "forbidden": [
@@ -56,11 +92,17 @@
     },
     {
       "role": "ml-engineer",
-      "scope": ["ml/**", "packages/ml-inference/**"],
+      "scope": [
+        "ml/**",
+        "packages/ml-inference/**"
+      ],
       "mustFollow": [
-        "R6", "R9",
-        "docs/PROJECT_PLAN.md §5", "docs/ml/model-card.md",
-        "docs/ml/feature-engineering.md", "docs/ml/inference-architecture.md"
+        "R6",
+        "R9",
+        "docs/PROJECT_PLAN.md §5",
+        "docs/ml/model-card.md",
+        "docs/ml/feature-engineering.md",
+        "docs/ml/inference-architecture.md"
       ],
       "forbidden": [
         "Randomly shuffled train/validation splits (walk-forward CV only, to avoid time-series leakage)",
@@ -73,36 +115,62 @@
     },
     {
       "role": "devops",
-      "scope": [".github/**", "wrangler.toml", "turbo.json"],
+      "scope": [
+        ".github/**",
+        "wrangler.toml",
+        "turbo.json"
+      ],
       "mustFollow": [
-        "R7", "R9",
-        "docs/PROJECT_PLAN.md §11", "docs/standards/git-workflow.md"
+        "R7",
+        "R9",
+        "docs/PROJECT_PLAN.md §11",
+        "docs/standards/git-workflow.md"
       ],
       "forbidden": [
         "continue-on-error or `|| true` on any test/lint/typecheck step",
         "Exposing any cron/background job as an HTTP-triggered workflow step calling apps/api (ADR-007)",
         "Hardcoding a real secret value in any workflow YAML",
-        "Using an unpinned (no version/SHA) third-party GitHub Action",
-        "Merging a deploy workflow that fails hard when a required secret is simply unconfigured, instead of no-oping safely"
+        "Referencing a third-party GitHub Action by a mutable ref — a version tag (@v4) is mutable and the owner can move it. Pin to a full 40-character commit SHA with the version in a trailing comment, and let Dependabot bump it",
+        "Referencing a container base image by a mutable tag where a digest can be pinned instead",
+        "Interpolating ${{ secrets.X }} into a `run:` script body — read secrets through `env:` so the value is never substituted into the script text",
+        "secrets: inherit on a reusable-workflow call — name each secret explicitly so the grant is a reviewable diff",
+        "Building the same artifact twice in one pipeline (build, scan, then rebuild to publish). Build once, verify that artifact, promote it by digest — otherwise the bytes that were scanned are not the bytes that ship",
+        "Merging a deploy workflow that fails hard when a required secret is simply unconfigured, instead of no-oping safely — except on main once the environment split lands, where a silent no-op deploy must become a hard failure",
+        "strategy.fail-fast: true on a matrix of independent gates — a developer should get every failure in one run, not one per push"
       ],
-      "definitionOfDone": "Workflow YAML valid and version-pinned; the exact CI gate sequence (lint -> typecheck -> test -> build -> e2e) enforced with no bypass; docs/ci-cd.md updated with the workflow's trigger, steps, and required secrets."
+      "definitionOfDone": "Workflow YAML valid, actionlint-clean, and every third-party action SHA-pinned; the exact CI gate sequence (lint -> typecheck -> test -> build -> e2e) enforced with no bypass; each job's `permissions:` block is the minimum it needs; secrets named explicitly rather than inherited, and drawn from the correct GitHub Environment (docs/security/github-environments.md); docs/ci-cd.md updated with the workflow's trigger, steps, and required secrets."
     },
     {
       "role": "security-reviewer",
-      "scope": ["**"],
+      "scope": [
+        "**"
+      ],
       "mustFollow": [
-        "R1", "R2", "R3", "R4", "R5", "R7", "R9", "R10",
-        "docs/PROJECT_PLAN.md §7", "docs/security/threat-model.md",
-        "docs/security/secrets-matrix.md", "docs/security/rate-limiting.md"
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5",
+        "R7",
+        "R9",
+        "R10",
+        "docs/PROJECT_PLAN.md §7",
+        "docs/security/threat-model.md",
+        "docs/security/secrets-matrix.md",
+        "docs/security/rate-limiting.md"
       ],
       "forbidden": [
         "Approving a write-path or auth-adjacent PR with no STRIDE vectors filled in",
         "Approving a PR where the three-pass manual test log is missing or unsigned for a write-path/LLM-touching change",
-        "Weakening a lint rule, test assertion, or manual-test description to force a gate green",
+        "Weakening a lint rule, test assertion, coverage threshold, or manual-test description to force a gate green",
         "Allowing a non-VITE_PUBLIC_ env reference to merge under apps/web/src",
-        "Signing off on a new table/policy without RLS enabled or an ADR exception"
+        "Signing off on a new table/policy without RLS enabled or an ADR exception",
+        "Reporting a finding with no concrete failure_scenario (inputs -> wrong output). A finding that cannot state one is an opinion and does not block a merge",
+        "Reviewing per file edit rather than per diff checkpoint — a half-finished change produces findings that are artifacts of when it was looked at, and a reviewer people learn to ignore is worse than none",
+        "Re-deriving by model what eslint, tsc, CodeQL, or semgrep already decides deterministically"
       ],
-      "definitionOfDone": "Every R-rule in docs/PROJECT_PLAN.md §0.3 audited against the actual shipped code for the PR's scope, not just the plan; findings either fixed in the PR or explicitly tracked with an owner and reason."
+      "reviewProtocol": "One agent per concern (correctness, security, performance) over the WHOLE diff, at a checkpoint — never N agents over N files. Every finding carries {file, line, category, severity, confidence, failure_scenario, suggested_fix}. A verification pass must attempt to disprove each finding against the real code before it is reported. When a finding recurs across reviews, promote it to a lint or semgrep rule — that converts a probabilistic check into a permanent deterministic one.",
+      "definitionOfDone": "Every R-rule in docs/PROJECT_PLAN.md §0.3 audited against the actual shipped code for the PR's scope, not just the plan; findings either fixed in the PR or explicitly tracked with an owner and reason; every reported finding survived the verification pass."
     }
   ]
 }

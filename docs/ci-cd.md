@@ -1,5 +1,9 @@
 # CI/CD — Workflows, Secrets & Runbook
 
+**Read when:** editing .github/workflows, debugging a red pipeline, or configuring CI secrets.
+
+**Decides:** Every workflow trigger and step, required secrets, gate locations, and rollback.
+
 **Gist:** every workflow under `.github/workflows/` plus `.github/dependabot.yml`,
 what triggers each one, what secret or repository variable it needs, how it
 fails, and how to debug a red run. `docs/docker.md` owns the *local* half of
@@ -194,15 +198,23 @@ Two independent choices when adding one of these: **secret vs. variable**
 is already answered by the Kind column in the table above — secret for
 anything that grants access, repository variable for anything that's
 already public once `apps/web` ships it. **Repository vs. environment
-scope** is not: GitHub also lets you scope a secret to a named
-*environment* (`Settings → Environments`) rather than the whole
-repository, gated on required reviewers or a wait timer. None of this
-project's workflows declare an `environment:` key, so an environment-scoped
-secret would simply never be injected — **use repository scope for
-everything in the table above.** Revisit this only if a future workflow
-adds a deployment gate that needs one (e.g. manual approval before a
-production `wrangler deploy`), and document that workflow's `environment:`
-value here at the same time.
+scope** is the second choice, and it is mid-migration:
+
+- **Today: repository scope, for everything in the table above.** No
+  workflow declares an `environment:` key yet, and an environment-scoped
+  secret is injected *only* into a job that declares one — so setting a
+  secret at environment scope right now means it is never injected, and the
+  deploy silently no-ops while reporting success. Follow the repository-scope
+  instructions below.
+- **Target: environment scope, split `preview` / `production`.**
+  `secrets: inherit` in `pipeline.yml` currently hands every repository
+  secret to both deploy paths, which means a push to `dev` runs holding the
+  production Cloudflare token and the production service-role key. The
+  full cutover procedure — creating the environments, branch policies,
+  required reviewers, per-environment credentials, the workflow edits, and
+  the verification that must pass before the repository-scoped copies are
+  deleted — is **`docs/security/github-environments.md`**. Do not apply it
+  piecemeal; a half-migrated state deploys nothing while going green.
 
 Via the web UI: **Settings → Secrets and variables → Actions**, then
 **New repository secret** (for `secret`-kind rows in the table above) or
@@ -468,8 +480,9 @@ A run triggered manually does not reset that timer; a commit does.
   pass, and only when the caller sets `publish: true` — that is, on a push
   to `main` or `dev`, never from a pull request.
 - **`api-container-parity`** (`ci.yml`) — builds `apps/api/Dockerfile`,
-  starts it, and runs the *identical* `apps/api` Playwright suite against
-  it with `API_TEST_TARGET=container`, using the same
+  starts it, and runs the *identical* `apps/api` Playwright **contract**
+  suite (`apps/api/e2e/`) against it with `API_TEST_TARGET=container`,
+  using the same
   `CORS_ALLOWED_ORIGINS`/`CORS_PREVIEW_ORIGIN_SUFFIX` values `wrangler dev`
   reads locally from `.dev.vars`/`wrangler.toml`. This is ADR-012's parity
   obligation: a spec that passes against `wrangler dev` (workerd) but
@@ -533,7 +546,11 @@ job fails on a real finding:
 | No internal planning references | `ci.yml` → `static-analysis` job, `scripts/check-internal-refs.mjs` |
 | Client bundle env-var scan | `ci.yml` → `build` job, `scripts/scan-client-env.mjs` against built `apps/web/dist` |
 | Bundle budget (180 KB gzip) | `ci.yml` → `build` job, `scripts/check-bundle-budget.mjs` |
-| Failing Playwright spec (any package) | `ci.yml` → `test`, `e2e-web`, `api-container-parity` jobs |
+| Failing Vitest test (`packages/*`, `apps/api` in workerd, `apps/web` hooks) | `ci.yml` → `test` job, `pnpm test` |
+| Vitest coverage threshold miss | `ci.yml` → `test` job, `pnpm test:coverage` (`docs/standards/testing.md` § Coverage) |
+| Failing Playwright spec (`apps/web` browser, `apps/api` contract suite) | `ci.yml` → `e2e-web`, `e2e-api`, `api-container-parity` jobs |
+| Agent-governance drift | `ci.yml` → `static-analysis` job, `scripts/check-agent-sync.mjs` (`docs/standards/agent-compliance.md`) |
+| Promotion-path violation (PR from a feature branch, or into `main` from anything but `dev`) | `ci.yml` → `static-analysis` job, `scripts/check-promotion-path.mjs` |
 | CodeQL high/critical | `codeql.yml`, called by `pipeline.yml` — see § The SAST gate |
 | Model checksum mismatch | Not yet applicable — no ML artifact ships until the ML pipeline slice |
 | hadolint / Trivy | `build-images.yml` (app images), `docker-image-scan.yml` (ML image) |

@@ -7,6 +7,10 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
+    "agent:sync": "node scripts/agent-sync.mjs",
+    "agent:sync:fix": "node scripts/agent-sync.mjs --fix",
+    "estimate:parallel": "node scripts/estimate-parallel-cost.mjs",
+    "check:internal-refs": "node scripts/check-internal-refs.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,css}\"",
     "docker:db": "docker compose up -d db && node scripts/docker-status.mjs",
@@ -20,7 +24,8 @@
     "docker:apps": "docker compose --profile apps up -d && node scripts/docker-status.mjs",
     "docker:apps:logs": "docker compose --profile apps logs -f",
     "docker:apps:down": "docker compose --profile apps down && node scripts/docker-status.mjs",
-    "docker:status": "node scripts/docker-status.mjs"
+    "docker:status": "node scripts/docker-status.mjs",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

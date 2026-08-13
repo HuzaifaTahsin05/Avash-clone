@@ -1,5 +1,9 @@
 # Frontend Coding Standards
 
+**Read when:** writing React, routing, state, or map code under apps/web/src.
+
+**Decides:** SPA conventions, optional-chaining checklist, bundle budget, accessibility, map rendering.
+
 `apps/web` is a React 18 + Vite client-rendered SPA (ADR-008) — there is no
 server rendering, no file-based API routes, and no framework magic beyond
 what Vite and React Router provide directly.

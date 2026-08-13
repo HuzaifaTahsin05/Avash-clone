@@ -1,5 +1,9 @@
 # Docker — Infrastructure, ML Runtime & App Images
 
+**Read when:** touching a Dockerfile, compose.yaml, or anything about local containers.
+
+**Decides:** What is containerized and why, the runbook for each image, and CI container jobs.
+
 **Gist:** Docker covers two distinct jobs here. **Infrastructure**
 (ADR-011): a Postgres 15 + PostGIS 3 database matching Supabase and a
 pinned Python 3.11 runtime for the ML pipeline — things nobody should
@@ -232,8 +236,8 @@ the runtime stage carries no `node_modules`.
 The Worker source is untouched by this: no runtime branching, no
 `if (isNode)`, no Node imports under `src/`. The adapter lives outside
 `src/` and is typed by its own `tsconfig.node.json`, keeping Node types
-out of Worker source — the same split already used for
-`playwright.config.ts`.
+out of Worker source — the same split already used for the test configs
+(`vitest.config.ts`, `playwright.config.ts`).
 
 Secrets arrive as **runtime** environment variables (`docker run -e` or
 compose `environment:`), never as build args and never baked. Values not
@@ -242,8 +246,12 @@ runs for a health check without a full secret set.
 
 **Two runtimes, one obligation.** Production runs workerd; this image runs
 Node. They are not the same platform, and CI therefore runs `apps/api`'s
-Playwright suite against **both** — once via `wrangler dev`, once against
-the running container. When you add a route:
+Playwright **contract** suite (`apps/api/e2e/`) against **both** — once via
+`wrangler dev`, once against the running container. That suite is the
+black-box boundary check; the exhaustive route coverage lives in the Vitest
+project, which runs inside workerd and so speaks only for that runtime —
+which is precisely why the dual Playwright run cannot be dropped. When you
+add a route:
 
 - Standard Web APIs (`fetch`, `crypto.randomUUID`, `Request`/`Response`,
   `URL`) work identically on both. Nothing to do.
@@ -291,8 +299,9 @@ The CI/CD pipeline work wires the same images into GitHub Actions:
   fail the job, matching the §11 rule already applied to CodeQL findings.
 - **`build-images.yml`** — builds both app images on every PR, publishes
   them to GHCR on `main`.
-- **The API dual-runtime run** — `apps/api`'s Playwright suite executes
-  twice, against `wrangler dev` and against the running API container.
+- **The API dual-runtime run** — `apps/api`'s Playwright contract suite
+  executes twice, against `wrangler dev` and against the running API
+  container.
   This is the parity obligation ADR-012 accepts; it is what keeps the
   image honest, and it is not optional.
 

@@ -1,0 +1,42 @@
+#!/bin/sh
+# Layer 3 (docs/standards/agent-compliance.md) — tool-independent.
+#
+# The Claude Code hook catches agent-config drift for one tool. This catches it
+# for every tool and every human, because it runs at git, not in an assistant.
+# Activated by `git config core.hooksPath .githooks`, which package.json's
+# `prepare` script runs on install.
+#
+# POSIX sh: this repo is developed on Windows via Git Bash.
+
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+fail=0
+
+# Internal planning labels must never reach a shipped file.
+if ! node scripts/check-internal-refs.mjs; then
+  fail=1
+fi
+
+# Agent config drift — only when something agentic is staged, so ordinary
+# commits pay nothing.
+if printf '%s\n' "$staged" | grep -qE '^(AGENTS\.md|CLAUDE\.md|\.claude/|\.cursor/|\.codex/|\.agents/|\.github/copilot-instructions\.md|docs/standards/.*\.md)'; then
+  if ! node scripts/agent-sync.mjs; then
+    echo ""
+    echo "Agent config is out of sync. Mechanical drift:  pnpm agent:sync:fix"
+    echo "Then re-stage the files it changed."
+    fail=1
+  fi
+fi
+
+# No server secret may reach the client bundle's source.
+if printf '%s\n' "$staged" | grep -q '^apps/web/src/'; then
+  if ! node scripts/scan-client-env.mjs 2>/dev/null; then
+    echo "Client env scan failed — see docs/security/secrets-matrix.md"
+    fail=1
+  fi
+fi
+
+exit $fail

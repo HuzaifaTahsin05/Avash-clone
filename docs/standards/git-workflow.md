@@ -1,5 +1,29 @@
 # Git Workflow Standards
 
+**Read when:** branching, committing, pushing, merging, or opening a PR — or when a hook refuses a command.
+
+**Decides:** The promotion path, naming, the vertical-slice-per-PR rule, and the merge gate list.
+
+## Hard rule: the promotion path
+
+Feature branches are **local only**. Never push one to a remote, and never
+open a PR from one. Never PR into `main` first.
+
+The path from finished work to `upstream/main` is always:
+
+1. Merge the local feature branch into local `dev` — locally, resolving any
+   conflicts locally. (Reset local `dev` to `origin/dev` first if it's stale.)
+2. Test the GitHub workflows locally before anything leaves the machine
+   (`actionlint` over `.github/workflows/`, plus the repo's own gates).
+3. Push `dev` to `origin`.
+4. Check the Actions run on `origin` and fix whatever it turns up. Do not
+   move on while it is red.
+5. Open a PR from `origin/dev` to `upstream/dev`.
+
+The feature branch never appears on any remote at any point in this. If one
+has already been pushed by mistake, close the PR and delete the remote branch
+before continuing.
+
 ## Branch naming
 
 | Prefix | Use |
@@ -46,7 +70,11 @@ build on within the same work session).
 - [ ] Every new hardcoded constant/threshold is added to
       `docs/PROJECT_PLAN.md` §14 and `docs/constants-registry.md` first.
 - [ ] No unused imports, variables, or functions left behind.
-- [ ] Automated test evidence (Playwright — `packages/*` logic, `apps/api`, and/or `apps/web` end-to-end) attached.
+- [ ] Automated test evidence attached for **both** layers the change
+      touches: Vitest (`packages/*`, `apps/api` in workerd, `apps/web`
+      hooks) and Playwright (`apps/web` browser, `apps/api` dual-runtime
+      contract). Coverage thresholds met, with no uncovered
+      security-relevant branch.
 - [ ] Three-pass manual test log present for any write-path or
       LLM-touching change, with reviewer sign-off recorded.
 - [ ] STRIDE security-vectors section filled in for any write-path or
@@ -67,8 +95,18 @@ blocks merge — on:
 6. Any client bundle referencing a non-`VITE_PUBLIC_`-prefixed env var
    (scanned directly against the built `apps/web/dist` output, not only
    caught by lint — defense in depth).
-7. Any failing Playwright spec (`packages/*`, `apps/api`, or `apps/web`)
-   — no `continue-on-error`, no `|| true` anywhere in any workflow.
+7. Any failing Vitest test (`packages/*`, `apps/api` in workerd, `apps/web`
+   hooks) or Playwright spec (`apps/web` browser, `apps/api` contract suite
+   on either runtime) — no `continue-on-error`, no `|| true` anywhere in
+   any workflow.
+8. Any Vitest coverage threshold miss (`docs/standards/testing.md`
+   § Coverage).
+9. Any agent-governance drift — `scripts/check-agent-sync.mjs` flagging a
+   per-tool agent config that has fallen out of sync with `AGENTS.md`
+   (`docs/standards/agent-compliance.md`).
+10. Any promotion-path violation — a PR opened from a feature branch, or a
+    PR targeting `main` from anything but `dev`
+    (§ Hard rule: the promotion path, above).
 
 `deploy-web.yml` and `deploy-api.yml` only run after `ci.yml` and
 `codeql.yml` are green **and** both container images have been built and
