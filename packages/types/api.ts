@@ -20,3 +20,18 @@ export const healthResponseSchema = z.object({
 });
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
+
+/**
+ * `GET /health/db` response contract. Readiness, not
+ * liveness — `/health` staying dependency-free is unaffected by this
+ * endpoint ever failing. `ready: false` is a normal, well-typed response,
+ * never an exception with a leaked driver error (R4/R10) — `reason` is a
+ * short generic label, never the raw error message.
+ */
+export const healthDbResponseSchema = z.object({
+  ready: z.boolean(),
+  reason: z.string().nullable(),
+  requestId: z.string(),
+});
+
+export type HealthDbResponse = z.infer<typeof healthDbResponseSchema>;

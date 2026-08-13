@@ -29,6 +29,7 @@ const REQUIRED_VARS = ['CORS_ALLOWED_ORIGINS'] as const;
  * 500 later.
  */
 const OPTIONAL_VARS = [
+  'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
   'SUPABASE_JWT_SECRET',
   'GEMINI_API_KEY',
@@ -57,6 +58,7 @@ function readBindings(): Bindings {
   }
 
   return {
+    SUPABASE_URL: process.env.SUPABASE_URL ?? '',
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
     SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET ?? '',
     GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? '',

@@ -123,6 +123,7 @@ services:
       CORS_PREVIEW_ORIGIN_SUFFIX: ${CORS_PREVIEW_ORIGIN_SUFFIX:-}
       # Server-only secrets: runtime-injected from the repo-root .env,
       # never build args, never baked into a layer (§7.1).
+      SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

@@ -1,4 +1,6 @@
 export interface Bindings {
+  /** Project URL — not secret (docs/security/secrets-matrix.md), but read server-side only under this name. */
+  SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   SUPABASE_JWT_SECRET: string;
   GEMINI_API_KEY: string;

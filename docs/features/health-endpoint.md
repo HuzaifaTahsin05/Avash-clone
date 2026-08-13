@@ -91,9 +91,21 @@ Supabase, no Gemini, no Upstash call happens anywhere in this request path
 answers "is the Worker running," not "is the database reachable." It
 intentionally has zero external dependencies so the CI pipeline — which is
 built before the database schema exists — never needs live Supabase
-credentials to pass. The database schema work adds a separate, additive
-`GET /health/db` **readiness** probe once the schema exists; nothing in
-this file is rewritten to add it.
+credentials to pass.
+
+**`GET /health/db` (shipped):** a separate, additive **readiness**
+probe — a bounded `select id from regions limit 1` through
+`apps/api/src/lib/supabaseAdmin.ts` (a fresh, request-scoped
+`@supabase/supabase-js` client built from the Worker's own `env`, never a
+module-level singleton). Returns `{ ready, reason, requestId }`
+(`healthDbResponseSchema`, `packages/types/api.ts`) — `200` when reachable,
+`503` with `ready: false` and a generic `reason` otherwise. Any thrown
+error (missing `SUPABASE_URL`, network failure, auth failure) collapses to
+the same generic shape (R4/R10); the real cause is never echoed back.
+`/health` staying dependency-free is unaffected by `/health/db` ever
+failing — verified locally with `SUPABASE_URL` unset: `/health` still
+returns `200`, `/health/db` returns a well-typed `503`. See
+`docs/features/database.md` for the schema this probe reads.
 
 **Critical Constants:**
 

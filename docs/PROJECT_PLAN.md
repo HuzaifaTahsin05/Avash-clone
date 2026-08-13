@@ -224,7 +224,7 @@ create index idx_regions_geom on regions using gist (geom);
 -- Weather ingestion (append-only)
 create table weather_observations (
   id bigint generated always as identity primary key,
-  region_id uuid references regions(id) on delete cascade,
+  region_id uuid references regions(id) on delete cascade on update cascade,
   observed_at timestamptz not null,
   temp_mean_c numeric(4,1),
   temp_min_c numeric(4,1),
@@ -239,7 +239,7 @@ create index idx_weather_region_time on weather_observations (region_id, observe
 -- Historical epidemiological ground truth (weekly aggregates)
 create table dengue_cases (
   id bigint generated always as identity primary key,
-  region_id uuid references regions(id) on delete cascade,
+  region_id uuid references regions(id) on delete cascade on update cascade,
   reported_week date not null,          -- ISO week start (Monday)
   case_count integer not null check (case_count >= 0),
   source text
@@ -249,7 +249,7 @@ create unique index uq_cases_region_week on dengue_cases (region_id, reported_we
 -- Model output (2 rows per region per run: horizon=2, horizon=4)
 create table risk_predictions (
   id bigint generated always as identity primary key,
-  region_id uuid references regions(id) on delete cascade,
+  region_id uuid references regions(id) on delete cascade on update cascade,
   prediction_date date not null,
   horizon_weeks smallint not null check (horizon_weeks in (2, 4)),
   risk_score numeric(4,3) not null check (risk_score between 0 and 1),
@@ -281,14 +281,14 @@ create index idx_summary_geom on region_risk_summary using gist (geom);
 -- Citizen-submitted breeding site reports
 create table breeding_reports (
   id uuid primary key default gen_random_uuid(),
-  reporter_id uuid references auth.users(id),
+  reporter_id uuid references auth.users(id) on delete set null on update cascade,
   geom geometry(Point, 4326) not null,
   description text,
   photo_url text,
   ai_validation jsonb,                  -- Gemini structured-output payload
   status text not null default 'pending'
     check (status in ('pending','verified','rejected','resolved')),
-  verified_by uuid references auth.users(id),
+  verified_by uuid references auth.users(id) on delete set null on update cascade,
   municipal_ref_id text,
   created_at timestamptz default now()
 );
@@ -311,25 +311,25 @@ create type blood_group as enum ('A+','A-','B+','B-','AB+','AB-','O+','O-');
 
 create table blood_inventory (
   id bigint generated always as identity primary key,
-  hospital_id uuid references hospitals(id) on delete cascade,
+  hospital_id uuid references hospitals(id) on delete cascade on update cascade,
   blood_group blood_group not null,
   units_available integer not null default 0 check (units_available >= 0),
   platelet_units integer default 0 check (platelet_units >= 0),
-  updated_by uuid references auth.users(id),
+  updated_by uuid references auth.users(id) on delete set null on update cascade,
   updated_at timestamptz default now(),
   unique (hospital_id, blood_group)
 );
 
 create table verified_hospital_staff (
-  user_id uuid references auth.users(id),
-  hospital_id uuid references hospitals(id),
+  user_id uuid references auth.users(id) on delete cascade on update cascade,
+  hospital_id uuid references hospitals(id) on delete cascade on update cascade,
   primary key (user_id, hospital_id)
 );
 
 -- Proximity alert subscriptions (geofence definition)
 create table alert_subscriptions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade on update cascade,
   geom geometry(Point, 4326) not null,
   radius_m integer not null default 2000 check (radius_m between 100 and 20000),
   active boolean default true,
@@ -340,7 +340,7 @@ create index idx_alerts_geom on alert_subscriptions using gist (geom);
 -- Web Push delivery targets (one browser subscription per device)
 create table push_subscriptions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade on update cascade,
   endpoint text not null unique,
   p256dh text not null,
   auth_key text not null,
@@ -353,7 +353,7 @@ create table news_items (
   source_url text unique not null,
   title text,
   published_at timestamptz,
-  region_guess uuid references regions(id),
+  region_guess uuid references regions(id) on delete set null on update cascade,
   ai_confidence numeric(3,2),
   flagged boolean default false,
   reviewed boolean default false,
@@ -381,6 +381,38 @@ Full policy SQL lives in `packages/db/supabase/migrations/`. RLS is **on** for e
 - Every "latest record per entity" query: composite index `(entity_id, timestamp desc)`.
 - Every hot read path for the UI: served from a materialized view or covering index, never a live `ST_DWithin` join against raw tables on the request path.
 - Statement timeout: `5s` enforced at the Supabase connection role level to prevent runaway spatial queries from starving the pool.
+
+### 4.3 Foreign Key Action Policy
+
+Every foreign key above declares its `on delete`/`on update` behavior
+explicitly — never left to the Postgres default (`no action`), so a
+`delete`/`update` against a parent row cannot fail with an opaque
+constraint-violation error at runtime. `on insert` has no separate action
+to declare: a foreign key is a constraint checked at `insert`/`update`
+time — the referenced row must already exist, full stop — which is what
+makes referential integrity enforcement automatic rather than
+application-level.
+
+| Child → Parent | `on delete` | `on update` | Why |
+|---|---|---|---|
+| `weather_observations.region_id → regions(id)` | `cascade` | `cascade` | Weather history has no meaning once its region is gone; append-only data, no orphan-preservation need |
+| `dengue_cases.region_id → regions(id)` | `cascade` | `cascade` | Same — case history is meaningless detached from a region |
+| `risk_predictions.region_id → regions(id)` | `cascade` | `cascade` | Predictions are derived from a region; deleting the region invalidates them |
+| `breeding_reports.reporter_id → auth.users(id)` | `set null` | `cascade` | Column is nullable (anonymous reports, ADR-005) — a deleted account's reports stay for the moderation record, just anonymized, rather than vanishing |
+| `breeding_reports.verified_by → auth.users(id)` | `set null` | `cascade` | A verified report must survive the verifying moderator's account being removed; the audit trail loses only the attribution, not the report |
+| `blood_inventory.hospital_id → hospitals(id)` | `cascade` | `cascade` | Inventory rows have no independent existence outside their hospital |
+| `blood_inventory.updated_by → auth.users(id)` | `set null` | `cascade` | Inventory data (ADR-010 Realtime feed) must not disappear because a staff account was removed |
+| `verified_hospital_staff.user_id → auth.users(id)` | `cascade` | `cascade` | A revoked/deleted account should not retain a staff-verification row |
+| `verified_hospital_staff.hospital_id → hospitals(id)` | `cascade` | `cascade` | Staff verification is meaningless once the hospital no longer exists |
+| `alert_subscriptions.user_id → auth.users(id)` | `cascade` | `cascade` | A deleted account's geofences should not keep matching and evaluating |
+| `push_subscriptions.user_id → auth.users(id)` | `cascade` | `cascade` | Same — no point delivering push to a subscription owned by a deleted account |
+| `news_items.region_guess → regions(id)` | `set null` | `cascade` | Column is nullable and advisory (AI-inferred, §5.4) — losing the region guess must not delete ingested news content |
+
+`on update cascade` is applied uniformly even though every referenced key
+here is a `uuid` primary key that the application never mutates in
+practice — it costs nothing at runtime and removes a class of
+"why did this update fail" surprises if a key value is ever legitimately
+reassigned (e.g. a manual data-repair `update`).
 
 ---
 

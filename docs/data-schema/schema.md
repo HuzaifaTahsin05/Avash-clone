@@ -1,10 +1,11 @@
 # Data Schema Reference
 
-> **This document describes the target schema** as specified in
-> `docs/PROJECT_PLAN.md` §4. The actual migration SQL is written in
-> `packages/db/supabase/migrations/` once the database build-out begins.
-> Until then, this file documents intent, not a deployed database — do not
-> assume any of these tables exist yet.
+> **Shipped.** The migrations in `packages/db/supabase/migrations/`
+> implement every table, index, and constraint below exactly — this file
+> and the SQL are kept in sync by hand on every schema change (R6). Apply
+> them with `pnpm db:migrate` (targets `DATABASE_URL_LOCAL`, the local
+> Postgres/PostGIS container from `pnpm docker:db`, by default) and seed
+> sample data with `pnpm db:seed`.
 
 All tables live in the Supabase Postgres project with the `postgis` and
 `pgcrypto` extensions enabled. Every geometry column uses SRID 4326
@@ -54,7 +55,7 @@ observed_at desc)`. *Why:* the "latest record per entity" access pattern
 (feature engineering's rolling windows, §4.2) always filters by region and
 orders by recency; a composite index serves both in one lookup.
 
-**Foreign keys:** `region_id → regions(id)`.
+**Foreign keys:** `region_id → regions(id)` `on delete cascade on update cascade` — see §4.3.
 
 **Note:** this table is append-only — no `update`/`delete` path exists in
 the application; corrections are handled by inserting a corrected row, not
@@ -78,7 +79,7 @@ the label source for model training and the `case_lag_*` features.
 `SURGE_TARGET_THRESHOLD` label computation and the `case_lag_1/2/3`
 features depend on.
 
-**Foreign keys:** `region_id → regions(id)`.
+**Foreign keys:** `region_id → regions(id)` `on delete cascade on update cascade` — see §4.3.
 
 ## `risk_predictions`
 
@@ -114,7 +115,7 @@ unique `(region_id, horizon_weeks, prediction_date)`.
 prediction_date desc)`. *Why:* every read of "the latest prediction for
 this region" is this exact access pattern.
 
-**Foreign keys:** `region_id → regions(id)`.
+**Foreign keys:** `region_id → regions(id)` `on delete cascade on update cascade` — see §4.3.
 
 ## `region_risk_summary` (materialized view)
 
@@ -160,7 +161,7 @@ the moderator queue only ever queries pending reports — indexing just that
 subset keeps the index small and the queue query fast as `verified`/
 `rejected`/`resolved` rows accumulate.
 
-**Foreign keys:** `reporter_id → auth.users(id)`, `verified_by → auth.users(id)`.
+**Foreign keys:** `reporter_id → auth.users(id)` `on delete set null on update cascade`; `verified_by → auth.users(id)` `on delete set null on update cascade` — see §4.3.
 
 ## `hospitals`
 
@@ -202,7 +203,7 @@ All 8 standard blood groups. Used by `blood_inventory.blood_group`.
 **Constraints:** unique `(hospital_id, blood_group)` — exactly one
 inventory row per hospital per blood group.
 
-**Foreign keys:** `hospital_id → hospitals(id)`, `updated_by → auth.users(id)`.
+**Foreign keys:** `hospital_id → hospitals(id)` `on delete cascade on update cascade`; `updated_by → auth.users(id)` `on delete set null on update cascade` — see §4.3.
 
 ## `verified_hospital_staff`
 
@@ -213,7 +214,7 @@ Join table gating who may update a hospital's `blood_inventory`.
 | `user_id` | `uuid` | FK → `auth.users(id)`, PK (composite) | Staff member |
 | `hospital_id` | `uuid` | FK → `hospitals(id)`, PK (composite) | Hospital they're verified for |
 
-**Foreign keys:** `user_id → auth.users(id)`, `hospital_id → hospitals(id)`.
+**Foreign keys:** `user_id → auth.users(id)` `on delete cascade on update cascade`; `hospital_id → hospitals(id)` `on delete cascade on update cascade` — see §4.3.
 
 ## `alert_subscriptions`
 
@@ -232,7 +233,7 @@ Proximity geofence definitions for push alerting.
 job's `ST_DWithin` proximity check against every active subscription needs
 this to be indexed, not a sequential scan, as subscription volume grows.
 
-**Foreign keys:** `user_id → auth.users(id)`.
+**Foreign keys:** `user_id → auth.users(id)` `on delete cascade on update cascade` — see §4.3.
 
 ## `push_subscriptions`
 
@@ -247,7 +248,7 @@ Web Push delivery targets — one row per browser subscription per device.
 | `auth_key` | `text` | not null | Push auth secret |
 | `created_at` | `timestamptz` | default `now()` | Registration time |
 
-**Foreign keys:** `user_id → auth.users(id)`.
+**Foreign keys:** `user_id → auth.users(id)` `on delete cascade on update cascade` — see §4.3.
 
 ## `news_items`
 
@@ -266,7 +267,7 @@ can influence anything public-facing.
 | `reviewed` | `boolean` | default `false` | Human review complete — gates any public-facing use |
 | `created_at` | `timestamptz` | default `now()` | Ingestion time |
 
-**Foreign keys:** `region_guess → regions(id)`.
+**Foreign keys:** `region_guess → regions(id)` `on delete set null on update cascade` — see §4.3.
 
 ---
 
@@ -300,25 +301,144 @@ have an ADR justifying it.
   (`DB_STATEMENT_TIMEOUT_S`, §14) to prevent runaway spatial queries from
   starving the pool.
 
+## 4.3 Foreign Key Action Policy
+
+Every foreign key in §4 declares its `on delete`/`on update` behavior
+explicitly — never the Postgres default (`no action`) — so a `delete` or
+`update` against a parent row cannot fail at runtime with an opaque
+constraint-violation error. There is no separate "on insert" action to
+configure: a foreign key is checked at `insert`/`update` time by
+definition — the referenced row must already exist — which is what makes
+referential integrity automatic rather than something application code
+has to re-implement.
+
+| Child → Parent | `on delete` | `on update` | Why |
+|---|---|---|---|
+| `weather_observations.region_id → regions(id)` | `cascade` | `cascade` | Append-only weather history has no meaning once its region is gone |
+| `dengue_cases.region_id → regions(id)` | `cascade` | `cascade` | Case history is meaningless detached from a region |
+| `risk_predictions.region_id → regions(id)` | `cascade` | `cascade` | Predictions are derived from a region; deleting it invalidates them |
+| `breeding_reports.reporter_id → auth.users(id)` | `set null` | `cascade` | Nullable column (anonymous reports, ADR-005) — a deleted account's reports stay for the moderation record, anonymized rather than removed |
+| `breeding_reports.verified_by → auth.users(id)` | `set null` | `cascade` | A verified report must outlive the verifying moderator's account; only the attribution is lost |
+| `blood_inventory.hospital_id → hospitals(id)` | `cascade` | `cascade` | Inventory rows have no independent existence outside their hospital |
+| `blood_inventory.updated_by → auth.users(id)` | `set null` | `cascade` | The Realtime-fed inventory data (ADR-010) must not disappear because a staff account was removed |
+| `verified_hospital_staff.user_id → auth.users(id)` | `cascade` | `cascade` | A deleted account should not retain a staff-verification row |
+| `verified_hospital_staff.hospital_id → hospitals(id)` | `cascade` | `cascade` | Staff verification is meaningless once the hospital no longer exists |
+| `alert_subscriptions.user_id → auth.users(id)` | `cascade` | `cascade` | A deleted account's geofences must stop matching and evaluating |
+| `push_subscriptions.user_id → auth.users(id)` | `cascade` | `cascade` | No point delivering push to a subscription owned by a deleted account |
+| `news_items.region_guess → regions(id)` | `set null` | `cascade` | Nullable, advisory AI-inferred column (§5.4) — losing the guess must not delete ingested news content |
+
+`on update cascade` is applied uniformly even though every referenced key
+is a `uuid` primary key the application never mutates in practice — it
+costs nothing at runtime and removes a class of "why did this update
+fail" surprise if a key is ever legitimately reassigned (e.g. a manual
+data-repair `update`).
+
 ## Entity-Relationship Diagram
 
 ```mermaid
 erDiagram
-    regions ||--o{ weather_observations : "has"
-    regions ||--o{ dengue_cases : "has"
-    regions ||--o{ risk_predictions : "has"
-    regions ||--o{ breeding_reports : "region context"
-    regions ||--o{ news_items : "region_guess"
-    hospitals ||--o{ blood_inventory : "stocks"
-    hospitals ||--o{ verified_hospital_staff : "staffed by"
-    auth_users ||--o{ verified_hospital_staff : "verified for"
-    auth_users ||--o{ breeding_reports : "reports"
-    auth_users ||--o{ alert_subscriptions : "subscribes"
-    auth_users ||--o{ push_subscriptions : "registers"
-    auth_users ||--o{ blood_inventory : "updates"
+    regions {
+        uuid id PK
+        text code UK
+        text name
+        smallint admin_level
+        integer population
+        geometry geom
+    }
+    weather_observations {
+        bigint id PK
+        uuid region_id FK
+        timestamptz observed_at
+        numeric temp_mean_c
+        jsonb raw_payload
+    }
+    dengue_cases {
+        bigint id PK
+        uuid region_id FK
+        date reported_week
+        integer case_count
+    }
+    risk_predictions {
+        bigint id PK
+        uuid region_id FK
+        date prediction_date
+        smallint horizon_weeks
+        numeric risk_score
+        text risk_level "generated"
+        text model_version
+    }
+    region_risk_summary {
+        uuid region_id "from regions.id"
+        text name
+        geometry geom
+        numeric risk_score
+        text risk_level
+        smallint horizon_weeks
+    }
+    breeding_reports {
+        uuid id PK
+        uuid reporter_id FK "nullable"
+        geometry geom
+        text status
+        uuid verified_by FK "nullable"
+    }
+    hospitals {
+        uuid id PK
+        text name
+        geometry geom
+        boolean verified
+    }
+    blood_inventory {
+        bigint id PK
+        uuid hospital_id FK
+        blood_group blood_group
+        integer units_available
+        uuid updated_by FK "nullable"
+    }
+    verified_hospital_staff {
+        uuid user_id PK "FK"
+        uuid hospital_id PK "FK"
+    }
+    alert_subscriptions {
+        uuid id PK
+        uuid user_id FK
+        geometry geom
+        integer radius_m
+    }
+    push_subscriptions {
+        uuid id PK
+        uuid user_id FK
+        text endpoint UK
+    }
+    news_items {
+        bigint id PK
+        text source_url UK
+        uuid region_guess FK "nullable"
+        boolean reviewed
+    }
+    auth_users {
+        uuid id PK
+        text email
+    }
+
+    regions ||--o{ weather_observations : "on delete cascade"
+    regions ||--o{ dengue_cases : "on delete cascade"
+    regions ||--o{ risk_predictions : "on delete cascade"
+    regions ||--o{ news_items : "on delete set null"
     regions ||--o{ region_risk_summary : "summarized in"
     risk_predictions ||--o{ region_risk_summary : "latest row feeds"
+    hospitals ||--o{ blood_inventory : "on delete cascade"
+    hospitals ||--o{ verified_hospital_staff : "on delete cascade"
+    auth_users ||--o{ verified_hospital_staff : "on delete cascade"
+    auth_users |o--o{ breeding_reports : "reporter_id, on delete set null"
+    auth_users |o--o{ breeding_reports : "verified_by, on delete set null"
+    auth_users ||--o{ alert_subscriptions : "on delete cascade"
+    auth_users ||--o{ push_subscriptions : "on delete cascade"
+    auth_users |o--o{ blood_inventory : "updated_by, on delete set null"
 ```
 
 `auth_users` above refers to Supabase's built-in `auth.users` table,
-managed by Supabase Auth, not created by this project's migrations.
+managed by Supabase Auth, not created by this project's migrations. Every
+edge label states the child's `on delete` action (§4.3) — `||` denotes a
+mandatory (`not null`) foreign key, `|o` denotes an optional (nullable)
+one.

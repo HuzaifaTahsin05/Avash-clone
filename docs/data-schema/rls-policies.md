@@ -4,10 +4,11 @@ RLS is **on** for every table in this project by default
 (`docs/PROJECT_PLAN.md` §4.1). Any table shipped without RLS enabled must
 carry its own ADR explaining why — there is no silent exception. This
 document states the intended stance for all four operations
-(`select`/`insert`/`update`/`delete`) on every table from §4. Policy SQL
-itself is written in `packages/db/supabase/migrations/` once the database
-build-out begins; this document is the human-readable contract that
-migration is written against.
+(`select`/`insert`/`update`/`delete`) on every table from §4. The policy
+SQL itself lives in
+`packages/db/supabase/migrations/20260201000007_rls_policies.sql`,
+implementing every stance below — this document is the human-readable
+contract that migration was written against, kept in sync by hand.
 
 ## `regions`
 

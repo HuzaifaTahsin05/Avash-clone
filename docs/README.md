@@ -58,8 +58,9 @@ has not yet been reached.
 
 | File | Description | Status |
 |---|---|---|
-| [`data-schema/schema.md`](data-schema/schema.md) | Full §4 PostGIS schema reference: every table, index, and the ER diagram (documents the *target* schema; SQL ships once the database build-out lands) | Existing, updated when the schema ships |
+| [`data-schema/schema.md`](data-schema/schema.md) | Full §4 PostGIS schema reference: every table, index, the FK `on delete`/`on update` action policy (§4.3), and the ER diagram (documents the *target* schema; SQL ships once the database build-out lands) | Existing, updated when the schema ships |
 | [`data-schema/rls-policies.md`](data-schema/rls-policies.md) | Per-table RLS intent for all four operations, on every table | Existing |
+| [`data-schema/dfd.md`](data-schema/dfd.md) | Data Flow Diagram (Gane–Sarson): context-level (Level 0) and process-decomposition (Level 1), external entities/processes/data stores distinct from the ERD and the system architecture diagram | Existing |
 
 ## `docs/ml/`
 
@@ -88,9 +89,9 @@ per-feature docs cannot describe behavior that doesn't exist yet).
 | File | Description | Status |
 |---|---|---|
 | [`features/frontend-scaffold.md`](features/frontend-scaffold.md) | The single-page frontend shell: what it renders, bundle budget, e2e coverage | Existing |
-| `features/health-endpoint.md` | `/health` liveness endpoint; documents the liveness-vs-readiness split ahead of the database readiness probe | Planned |
-| `features/integration.md` | Frontend↔backend integration: request lifecycle, CORS matrix, shared-contract rule, UI-state↔spec mapping | Planned |
-| `features/database.md` | Migration workflow, rollback procedure, what shipped vs. what `schema.md` documents | Planned |
+| [`features/health-endpoint.md`](features/health-endpoint.md) | `/health` liveness endpoint and `/health/db` readiness probe | Existing |
+| [`features/integration.md`](features/integration.md) | Frontend↔backend integration: request lifecycle, CORS matrix, shared-contract rule, UI-state↔spec mapping | Existing |
+| [`features/database.md`](features/database.md) | Migration workflow, seed/refresh tooling, what shipped vs. what `schema.md` documents | Existing |
 
 Further feature docs (breeding reports, blood inventory, symptom checker,
 alerts, news aggregator) are added as their vertical slices ship, per

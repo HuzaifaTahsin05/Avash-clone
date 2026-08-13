@@ -1,1 +1,26 @@
-{"name": "@avash/db", "version": "1.0.0"}
+{
+  "name": "@avash/db",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:reset": "node scripts/reset.mjs",
+    "db:seed": "tsx ../../scripts/seed-db.ts",
+    "db:types": "node scripts/generate-types.mjs",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/pg": "^8.21.0",
+    "pg": "^8.23.0",
+    "supabase": "^2.114.0",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3"
+  }
+}
