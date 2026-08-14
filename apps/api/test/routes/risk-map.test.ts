@@ -84,6 +84,27 @@ describe('GET /risk-map', () => {
     expect(url?.searchParams.has('max_lon')).toBe(false);
   });
 
+  test('a null generated_at on a row never surfaces as the literal string "null"', async () => {
+    const rowWithNullGeneratedAt = { ...geojsonRowOlder, generated_at: null };
+    const fake = createFakeSupabase([
+      { path: '/rest/v1/region_risk_geojson', body: [geojsonRow, rowWithNullGeneratedAt] },
+    ]);
+    vi.stubGlobal('fetch', fake.fetch);
+
+    const res = await riskMapApp().request('/', {}, fakeBindings());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(() => riskMapResponseSchema.parse(body)).not.toThrow();
+
+    const nullRowFeature = body.features.find(
+      (f: { properties: { regionId: string } }) => f.properties.regionId === rowWithNullGeneratedAt.region_id
+    );
+    expect(nullRowFeature.properties.generatedAt).not.toBe('null');
+    // The real row (geojsonRow) still wins "newest" — the epoch sentinel
+    // standing in for the null row must never win that comparison.
+    expect(body.generatedAt).toBe(geojsonRow.generated_at);
+  });
+
   test('bbox containing all seeded regions: carries exactly the four range filters', async () => {
     const fake = createFakeSupabase([
       { path: '/rest/v1/region_risk_geojson', body: [geojsonRow, geojsonRowOlder] },
