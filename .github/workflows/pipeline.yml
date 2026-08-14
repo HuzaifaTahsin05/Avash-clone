@@ -186,19 +186,15 @@ jobs:
   deploy-web:
     needs: [context, images, ml-image]
     if: needs.context.outputs.deploy_web == 'true'
-    # deploy-web.yml's own job ALSO declares environment: now (it needs
-    # to, for the workflow_dispatch path that has no caller to declare
-    # it on). Declaring it here too is what makes production require an
-    # approval on *this* path into the environment, same as before — and
-    # since both sides always resolve to the same name (this output,
-    # threaded through as `with: environment:` below), the two
-    # declarations name the same environment rather than disagreeing.
-    # docs/security/github-environments.md § Step 6 documents the
-    # ordering caveat this used to avoid by only declaring it here; that
-    # tradeoff is deliberate now that deploy-web.yml supports a direct
-    # dispatch — verify secret resolution still holds with a real dry
-    # run (§ Step 8) rather than assuming.
-    environment: ${{ needs.context.outputs.environment }}
+    # No `environment:` here — GitHub's schema does not allow it on a job
+    # that also has `uses:` (a reusable-workflow call). This was already
+    # present, and already invalid, before this change (confirmed against
+    # the base commit with `act -l`); the pipeline has never actually run
+    # past this point. `deploy-web.yml`'s own job carries
+    # `environment: ${{ inputs.environment }}` instead, which is the
+    # only place GitHub's schema allows it — see
+    # docs/security/github-environments.md § Step 6 for the secret-scope
+    # reasoning that shape still needs to satisfy.
     permissions:
       contents: read
       deployments: write
@@ -216,8 +212,7 @@ jobs:
   deploy-api:
     needs: [context, images, ml-image]
     if: needs.context.outputs.deploy_api == 'true'
-    # See deploy-web's environment: comment above — same reasoning.
-    environment: ${{ needs.context.outputs.environment }}
+    # See deploy-web's comment above — same reasoning, same fix.
     uses: ./.github/workflows/deploy-api.yml
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
