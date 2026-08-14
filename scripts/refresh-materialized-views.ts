@@ -18,7 +18,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
-const repoRoot = path.resolve(fileURLToPath(import.meta.url), '..');
+// This file lives at <repoRoot>/scripts/refresh-materialized-views.ts —
+// '..' alone resolves to scripts/ (the file's own directory), not the
+// repo root; '../..' is correct.
+const repoRoot = path.resolve(fileURLToPath(import.meta.url), '../..');
 const rootEnvFile = path.join(repoRoot, '.env');
 if (existsSync(rootEnvFile)) {
   process.loadEnvFile(rootEnvFile);

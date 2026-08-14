@@ -198,3 +198,45 @@ test.describe('region_risk_summary materialized view', () => {
     await expect(db.query('refresh materialized view concurrently region_risk_summary;')).resolves.toBeDefined();
   });
 });
+
+test.describe('region_risk_geojson geometry (20260215000011)', () => {
+  // regions.geom is geometry(MultiPolygon, 4326) (20260201000001) and
+  // packages/types' riskMapResponseSchema requires geometry.type to be
+  // exactly "MultiPolygon" — but st_simplifypreservetopology alone
+  // silently drops the Multi wrapper when a region simplifies to a
+  // single part (every seeded region does), which 503'd GET
+  // /api/risk-map until the view wrapped it in st_multi(). This pins
+  // that exact expression so a future edit to the view can't
+  // reintroduce it.
+  test('st_multi(st_simplifypreservetopology(...)) stays MultiPolygon for a single-part region', async () => {
+    const db = requireDb();
+    await db.query('begin');
+    try {
+      const region = await db.query(
+        `insert into regions (code, name, admin_level, geom)
+         values (
+           'SCHEMA-TEST-GEOJSON-1',
+           'GeoJSON Test Region',
+           1,
+           ST_GeomFromText('MULTIPOLYGON(((0 0,0 1,1 1,1 0,0 0)))', 4326)
+         )
+         returning id`
+      );
+      const { rows } = await db.query(
+        `select
+           ST_GeometryType(geom) as raw_type,
+           ST_GeometryType(ST_SimplifyPreserveTopology(geom, 0.001)) as simplified_type,
+           ST_GeometryType(ST_Multi(ST_SimplifyPreserveTopology(geom, 0.001))) as view_type
+         from regions where id = $1`,
+        [region.rows[0].id]
+      );
+      expect(rows[0].raw_type).toBe('ST_MultiPolygon');
+      // Documents the bug itself: simplify alone downgrades the type.
+      expect(rows[0].simplified_type).toBe('ST_Polygon');
+      // What the view actually emits, wrapped in st_multi() — the fix.
+      expect(rows[0].view_type).toBe('ST_MultiPolygon');
+    } finally {
+      await db.query('rollback');
+    }
+  });
+});

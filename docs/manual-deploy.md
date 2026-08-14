@@ -316,22 +316,41 @@ a migration that drops a column does not.
 - A fresh backup of the target environment.
 - Migrations are forward-only and idempotent where possible. Every
   migration has a written down-path, even if it is "restore from backup."
+- Run every `supabase` command below **from `packages/db`** — that's
+  where `supabase/migrations` actually lives (`packages/db/supabase/migrations`).
+  Run from the repo root instead and `supabase link` still succeeds, but
+  `db push`/`db diff` silently find zero local migration files and report
+  "up to date" even against a completely empty database — a false
+  negative, not a real confirmation.
+
+`packages/db/scripts/push-hosted.mjs` wraps `link` + `db push` from the
+right directory so this can't be gotten wrong:
+
+```bash
+pnpm --filter @avash/db run db:push:hosted <project-ref> --dry-run   # what would run
+pnpm --filter @avash/db run db:push:hosted <project-ref>             # apply
+```
 
 ### Deploy — preview
 
 ```bash
+cd packages/db
 supabase link --project-ref <preview-project-ref>
 
 supabase db diff --linked            # what would change — read every line
 supabase db push --dry-run           # what would run
 supabase db push                     # apply
+cd ../..
 
-pnpm db:seed                         # preview only, if the environment wants sample data
+pnpm db:seed -- --hosted             # preview only, if the environment wants sample data —
+                                      # requires DATABASE_URL_HOSTED in .env (docs/security/secrets-matrix.md § 9a)
 ```
 
 ### Deploy — production
 
 ```bash
+cd packages/db
+
 # 1. Back up first. Non-negotiable.
 supabase link --project-ref <production-project-ref>
 supabase db dump --linked -f "backup-$(date -u +%Y%m%dT%H%M%SZ).sql"
@@ -385,6 +404,24 @@ curl -sS https://<production-api-origin>/health/db | jq .
 
 A table with `rowsecurity = false` is a finding, not a note. Fix it before
 anything writes to it.
+
+Also confirm `apps/api` can actually read through PostgREST with its own
+key — RLS being enabled is not sufficient, `service_role` needs an
+explicit ACL grant too, and on a fresh Supabase project it does **not**
+get one automatically (`20260215000010_service_role_grants.sql` is what
+grants it; if a first-time environment setup predates that migration,
+every table and view 404s/403s from `apps/api` even though `psql` as the
+`postgres` role works fine):
+
+```bash
+curl -sS "$SUPABASE_URL/rest/v1/regions?select=id&limit=1" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  -w '\nstatus: %{http_code}\n'
+```
+
+Expect `200`. A `42501 permission denied` body means the grants migration
+hasn't been applied to this project.
 
 ### Rollback
 

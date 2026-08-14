@@ -22,6 +22,7 @@ const SERVER_ONLY_VAR_NAMES = [
   'TURNSTILE_SECRET_KEY',
   'DATABASE_URL',
   'DATABASE_URL_LOCAL',
+  'DATABASE_URL_HOSTED',
 ];
 
 const ENV_REFERENCE_PATTERN = /(?:import\.meta\.env|process\.env)\.([A-Z0-9_]+)/g;

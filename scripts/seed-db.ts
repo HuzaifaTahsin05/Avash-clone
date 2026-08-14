@@ -15,9 +15,12 @@
  *
  * Targets DATABASE_URL_LOCAL by default (the local Postgres/PostGIS
  * container, docs/docker.md) — the same fallback the migration runner
- * uses. Against a real Supabase project, point DATABASE_URL_LOCAL at that
- * project's connection string; the writes go through a superuser-grade
- * role either way, the same bypass a service-role key gives on Supabase's
+ * uses. Against a real Supabase project, pass --hosted: this reads
+ * DATABASE_URL_HOSTED instead (docs/security/secrets-matrix.md § 9a) —
+ * a deliberately separate variable from DATABASE_URL_LOCAL so a value
+ * left over in .env can never silently redirect a plain `pnpm db:seed`
+ * at a real database. The writes go through a superuser-grade role
+ * either way, the same bypass a service-role key gives on Supabase's
  * REST surface.
  */
 import { existsSync } from 'node:fs';
@@ -25,14 +28,29 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
-const repoRoot = path.resolve(fileURLToPath(import.meta.url), '..');
+// This file lives at <repoRoot>/scripts/seed-db.ts — '..' alone resolves
+// to scripts/ (the file's own directory), not the repo root, so the
+// root .env was never actually being loaded; '../..' is correct.
+const repoRoot = path.resolve(fileURLToPath(import.meta.url), '../..');
 const rootEnvFile = path.join(repoRoot, '.env');
 if (existsSync(rootEnvFile)) {
   process.loadEnvFile(rootEnvFile);
 }
 
 const DEFAULT_LOCAL_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/avash';
-const databaseUrl = process.env.DATABASE_URL_LOCAL?.trim() || DEFAULT_LOCAL_DATABASE_URL;
+const useHosted = process.argv.includes('--hosted');
+
+let databaseUrl;
+if (useHosted) {
+  databaseUrl = process.env.DATABASE_URL_HOSTED?.trim();
+  if (!databaseUrl) {
+    console.error('--hosted requires DATABASE_URL_HOSTED to be set in .env (see .env.example).');
+    process.exit(1);
+  }
+  console.log(`seeding HOSTED database: ${new URL(databaseUrl).host}`);
+} else {
+  databaseUrl = process.env.DATABASE_URL_LOCAL?.trim() || DEFAULT_LOCAL_DATABASE_URL;
+}
 
 interface RegionSeed {
   code: string;

@@ -49,6 +49,7 @@ source code.
 | `VAPID_PRIVATE_KEY` | server-only | `ml/serving/predict.py` (sends push notifications), never in any deployed app | `.env` |
 | `DATABASE_URL_LOCAL` | local-only | migration/seed tooling pointed at the `compose.yaml` `db` container (ADR-011) — a disposable localhost database, never a deployed one | `.env` |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | local-only | optional overrides for the `db` container's defaults (`postgres` / `postgres` / `avash` / `54322`), read by Compose | `.env` |
+| `DATABASE_URL_HOSTED` | server-only, a real secret | `scripts/seed-db.ts` when passed `--hosted` (§ 9a) — full superuser access to a real Supabase project's Postgres | `.env` |
 
 A client-consumed value must carry the `VITE_PUBLIC_` prefix **in its own
 name** — both locks above key off the identifier, not off intent, so a
@@ -226,6 +227,36 @@ from a provider:
 and `POSTGRES_PORT` address the disposable container in `compose.yaml`
 (`docs/docker.md`). Leave them blank unless you need to override a
 default — `pnpm docker:db` works with all five unset.
+
+### 9a. `DATABASE_URL_HOSTED` — hosted database, manual ops only
+
+A real Postgres connection string for a real Supabase project — full
+superuser access, not RLS-gated. Obtain it from the Supabase Dashboard for
+the specific project (preview or production have separate projects and
+separate passwords, per the environment table in `docs/manual-deploy.md`):
+**Project → Project Settings → Database → Connection string** (use the
+pooler/session-mode URI).
+
+Deliberately a separate variable from `DATABASE_URL_LOCAL`, not a
+fallback for it — a value left sitting in `.env` must never be able to
+silently redirect a plain `pnpm db:seed` at a real database. It is only
+read by `scripts/seed-db.ts` when explicitly passed `--hosted`:
+
+```bash
+pnpm db:seed -- --hosted
+```
+
+Migrations against a hosted project go through `supabase db push`
+instead (`packages/db/scripts/push-hosted.mjs`, `docs/manual-deploy.md` §
+Service 3), which authenticates via the linked `supabase` CLI session and
+never reads this variable.
+
+Leave blank day-to-day. Fill it in only for the duration of a manual
+hosted operation, then blank it again — treat it exactly like any other
+credential you would not want sitting in a plaintext file longer than
+necessary. It is exempt from the "local-only, not a secret" treatment
+`DATABASE_URL_LOCAL` gets: `scripts/scan-client-env.mjs` (R2 gate) lists
+it as server-only alongside `SUPABASE_SERVICE_ROLE_KEY`.
 
 ### Fastest path to a running local stack
 

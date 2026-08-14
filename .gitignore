@@ -23,6 +23,9 @@ coverage/
 # Wrangler local dev cache (apps/api)
 .wrangler/
 
+# Supabase CLI local link cache (`supabase link`, packages/db/scripts/push-hosted.mjs)
+**/supabase/.temp/
+
 # Playwright — every workspace using @playwright/test (apps/web, apps/api,
 # packages/logger, and any package/app added later) generates these at
 # the same relative paths.
