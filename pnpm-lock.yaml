@@ -50,6 +50,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@avash/geo':
+        specifier: workspace:*
+        version: link:../../packages/geo
       '@avash/logger':
         specifier: workspace:*
         version: link:../../packages/logger
