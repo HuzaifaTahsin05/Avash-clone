@@ -1,13 +1,47 @@
+# Canon is AGENTS.md — read it before acting. If this file disagrees with
+# AGENTS.md, AGENTS.md wins and the disagreement is a bug to report.
+# Rules apply unprompted; a request that omits them waives nothing.
 project: avash
 sourceOfTruth: docs/PROJECT_PLAN.md
+canonicalRules: AGENTS.md
+agentsMdSha256: adbe062b405ca4503677e2dec61cf4bf26975c2e48c5ddbe7903738e7d5a5e7c
+enforcement: docs/standards/agent-compliance.md
 language: typescript
-frameworks:
-  - react
-  - hono
-rules:
-  - id: R1
-    description: apps/web is a static SPA (React 18 + Vite). No SSR, no Next.js patterns.
-  - id: R2
-    description: Secrets never touch the client. Anything without a VITE_PUBLIC_ prefix must never be referenced under apps/web/src; it belongs in apps/api or a GitHub Actions job script.
-  - id: R3
-    description: One types source. Every shared interface/DTO/zod schema lives in packages/types — never redefined inline in either app.
+frameworks: [react, hono]
+
+nonNegotiable:
+  - Promotion path — feature branches are local only. Local branch -> local dev -> gates green -> push dev -> PR origin/dev -> upstream/dev. Never PR into main from anything but dev. (docs/standards/git-workflow.md)
+  - No non-VITE_PUBLIC_ env reference under apps/web/src, ever.
+  - Never weaken a test, assertion, lint rule, coverage threshold, or manual-test description to force a gate green.
+  - Both automated test layers plus the three-pass manual protocol; none substitutes for another.
+  - Docs change in the same commit as the code.
+  - One types source — packages/types. Never redefine inline.
+  - Optional chaining on every untrusted access point; find every instance.
+  - No new constant without a registry entry first.
+  - No internal planning label (milestone/phase number, task ID) in anything that ships.
+  - Never --no-verify.
+
+# Load the row that matches the task. Do not preload.
+readBeforeYouAct:
+  test: docs/standards/testing.md
+  git-or-pr: docs/standards/git-workflow.md
+  concurrent-work: docs/standards/parallel-work.md
+  apps/api-route: docs/standards/backend.md
+  apps/web-react: docs/standards/frontend.md
+  env-var-or-secret: docs/security/secrets-matrix.md
+  github-workflow: docs/ci-cd.md
+  manual-deploy: docs/manual-deploy.md
+  migration-or-spatial-sql: docs/data-schema/schema.md
+  new-constant: docs/constants-registry.md
+  dockerfile-or-compose: docs/docker.md
+  threat-model: docs/security/threat-model.md
+  agent-config: docs/standards/agent-compliance.md
+  role-scope-and-dod: .agents/task-contracts.json
+
+# Full detail in docs/standards/testing.md.
+testingInOneLine: >-
+  Does the test drive a running process from the outside? No -> Vitest
+  (*.test.ts): packages/* in node, apps/api inside workerd via
+  @cloudflare/vitest-pool-workers, apps/web hooks in jsdom (scoped).
+  Yes -> Playwright (*.spec.ts): apps/web in a real browser against the
+  production preview, apps/api contract suite on both runtimes.

@@ -1,5 +1,9 @@
 # Backend Coding Standards
 
+**Read when:** adding or changing a route, middleware, or the app entry under apps/api/src.
+
+**Decides:** Routing conventions, middleware order, error boundary, pooling, and the jobs-endpoint ban.
+
 `apps/api` is a Hono application running on Cloudflare Workers. It is the
 **only** place secret-touching, per-request logic is allowed to live
 (ADR-001) — no background job ever runs as an HTTP endpoint here (R7,
@@ -110,9 +114,10 @@ rejected.
 ## Testing — two `tsconfig`s, one deliberate reason
 
 `apps/api` has `tsconfig.json` (`include: ["src"]`) and a second
-`tsconfig.test.json` (`include: ["src", "test", "playwright.config.ts"]`)
-that additionally types Node's `process` global. This split exists
-because `playwright.config.ts` needs `process.env.CI`, and TypeScript's
+`tsconfig.test.json` (`include: ["src", "test", "e2e",
+"vitest.config.ts", "playwright.config.ts"]`) that additionally types
+Node's `process` global. This split exists because both test configs need
+`process.env` (`CI`, `API_TEST_TARGET`), and TypeScript's
 ambient globals apply to an entire compiled program, not per file — if
 `process` were typed in the same `tsconfig.json` used for `src/`, a route
 handler could type-check `process.env.SUPABASE_SERVICE_ROLE_KEY` even
@@ -122,7 +127,14 @@ read config in `src/` is the typed `Bindings` interface
 configs (`tsc --noEmit && tsc --noEmit -p tsconfig.test.json`); only the
 first is authoritative for "is this deployable," so a route handler that
 (incorrectly) referenced `process` would still fail the primary check.
-See `docs/standards/testing.md` for what actually runs in `apps/api/test/`.
+
+Note the asymmetry this creates and why it is correct: the **Vitest**
+suite in `apps/api/test/` runs *inside workerd* (via
+`@cloudflare/vitest-pool-workers`), so the tests themselves see the same
+runtime as production — it is only the config file that needs Node. The
+`apps/api/e2e/` Playwright suite runs in Node by definition, since it is a
+client making HTTP requests at a server. See `docs/standards/testing.md`
+for which layer owns which case.
 
 ## Defense in depth
 

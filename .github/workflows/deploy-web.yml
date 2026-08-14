@@ -17,6 +17,33 @@ name: deploy-web
 on:
   workflow_call:
     inputs:
+      environment:
+        description: >-
+          GitHub Environment ("preview" or "production") to draw secrets
+          and variables from (docs/security/github-environments.md).
+        type: string
+        required: true
+      pages_branch:
+        description: >-
+          Cloudflare Pages branch to deploy to. "main" is the production
+          deployment; any other value is a preview.
+        type: string
+        required: true
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+  # A direct, standalone trigger for an urgent deploy that doesn't need
+  # the full pipeline.yml graph rebuilt — same job, same environment:
+  # gating below, just reachable without going through the caller.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment to draw secrets and variables from.
+        type: choice
+        options: [preview, production]
+        required: true
       pages_branch:
         description: >-
           Cloudflare Pages branch to deploy to. "main" is the production
@@ -32,8 +59,21 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Set on this job (not only the caller's, per pipeline.yml's
+    # deploy-web job) so a direct workflow_dispatch run — which has no
+    # caller to declare it on — still resolves this environment's
+    # secrets/vars and still requires that environment's protection
+    # rules (e.g. a required reviewer on "production"). When called via
+    # pipeline.yml, `inputs.environment` is the same value the caller
+    # already resolved and gated on, so this does not open a second,
+    # looser path into the same environment — it is the same name either
+    # way. docs/security/github-environments.md § Step 6 covers the
+    # verification this relies on.
+    environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-workspace
 

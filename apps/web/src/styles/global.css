@@ -42,6 +42,54 @@ body {
   line-height: 1.6;
 }
 
+/* Navbar */
+.navbar {
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+}
+
+.navbar__nav {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.navbar__brand {
+  color: var(--color-text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.navbar__brand-en {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.navbar__links {
+  display: flex;
+  list-style: none;
+  gap: var(--space-3);
+}
+
+.navbar__link {
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.navbar__link:hover {
+  color: var(--color-text);
+}
+
+.navbar__link--active {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
 /* Layout */
 .page {
   max-width: 640px;
@@ -116,4 +164,200 @@ body {
   height: 1.6em;
   border-radius: var(--radius);
   background-color: var(--color-border);
+}
+
+/* Wider page variant for the map route — the fixed 640px reading width
+   used elsewhere would crush the Leaflet map and legend side by side. */
+.page--wide {
+  max-width: 1100px;
+}
+
+/* ── Weather page ────────────────────────────────────────────────────── */
+
+.weather__region-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+  max-width: 320px;
+}
+
+.weather__label {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.weather__select {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  font-size: 1rem;
+}
+
+.weather__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.weather__tile {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.weather__tile-label {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.weather__tile-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.weather__meta {
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
+
+/* ── Sparkline ───────────────────────────────────────────────────────── */
+
+.sparkline {
+  margin-top: var(--space-3);
+}
+
+.sparkline__svg {
+  width: 100%;
+  max-width: 400px;
+  height: 60px;
+  display: block;
+}
+
+.sparkline__line {
+  stroke: var(--color-primary);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline__dot {
+  fill: var(--color-primary);
+}
+
+.sparkline__caption {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin-top: var(--space-1);
+}
+
+/* ── Risk map page ───────────────────────────────────────────────────── */
+
+.riskmap__provenance-banner {
+  background-color: var(--color-warning);
+  color: var(--color-bg);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  font-weight: 600;
+}
+
+.riskmap__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.riskmap__controls-label {
+  color: var(--color-text-muted);
+}
+
+.riskmap__horizon-btn {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.riskmap__horizon-btn--active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.riskmap__layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.riskmap__map {
+  flex: 1 1 480px;
+  height: 480px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.riskmap__legend {
+  flex: 0 0 220px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+.riskmap__legend-title {
+  font-size: 1rem;
+  margin-bottom: var(--space-2);
+}
+
+.riskmap__legend-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.riskmap__legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.riskmap__legend-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border-color: var(--color-text);
+  flex-shrink: 0;
+}
+
+.riskmap__legend-text {
+  font-size: 0.9rem;
+}
+
+.riskmap__panel {
+  margin-top: var(--space-4);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+.riskmap__panel-title {
+  margin-bottom: var(--space-2);
+}
+
+.riskmap__panel-section {
+  margin-bottom: var(--space-3);
 }

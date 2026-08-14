@@ -14,16 +14,20 @@ without breaking that discipline.
    `apps/api` (Hono/Workers, all privileged logic) vs job scripts
    (`scripts/jobs/`, `ml/serving/`, run by GitHub Actions on a schedule).
 4. Commits follow Conventional Commits (see the type table below).
-5. Before opening a PR, the local pre-PR gate must pass for both apps:
+5. Feature branches are **local only** — never pushed to a remote, never the
+   source of a PR, never merged straight into `main`. Work lands via local
+   `dev` first, which is pushed and PR'd upstream. Full sequence in
+   `docs/standards/git-workflow.md` § Hard rule: the promotion path.
+6. Before opening a PR, the local pre-PR gate must pass for both apps:
    ```bash
    pnpm lint && pnpm typecheck && pnpm test && pnpm build
    ```
-6. PR description must include everything in the PR template
+7. PR description must include everything in the PR template
    (`.github/PULL_REQUEST_TEMPLATE.md`) filled out — see the template body
    below.
-7. Do not modify a test, a lint rule, or a manual-test description to force a
+8. Do not modify a test, a lint rule, or a manual-test description to force a
    broken feature to "pass."
-8. Both apps ship container images (ADR-012), but Cloudflare Pages /
+9. Both apps ship container images (ADR-012), but Cloudflare Pages /
    `wrangler deploy` remains how production ships — never wire an image
    into a deploy workflow. If your change touches an `apps/api` route,
    remember it must work on **both** runtimes (workerd and Node); CI runs
@@ -45,6 +49,10 @@ drafting a PR, translate its scope into a feature description before it
 lands in the repo — don't carry the label over.
 
 ## Branch naming
+
+Feature branches are local-only — see § above and
+`docs/standards/git-workflow.md` for the full promotion path to
+`upstream/main`.
 
 | Prefix | Use |
 |---|---|
@@ -68,15 +76,26 @@ Scope the commit where useful, e.g. `feat(api): add breeding report route`.
 
 ## Testing requirement (§10)
 
-Every PR ships **both** automated tests and the manual protocol — neither
-substitutes for the other:
+Every PR ships **both** automated layers and the manual protocol — none
+substitutes for another. The runner boundary is mechanical: *does the test
+drive a running process from the outside?*
 
-- **Automated:** Playwright for everything — `packages/*` and `apps/api`
-  logic (`pnpm test`), and end-to-end regression for `apps/web`
-  (`pnpm --filter web test:e2e`). One test framework repo-wide, no
-  Vitest; see `docs/standards/testing.md` for the three fixture profiles
-  (in-process, real HTTP against `wrangler dev`, real browser). All run
-  in CI (`ci.yml`).
+- **Unit + integration — Vitest (`*.test.ts`), `pnpm test`.** `packages/*`
+  pure logic in `node`; `apps/api` routes and middleware executed **inside
+  workerd** via `@cloudflare/vitest-pool-workers`, so the app under test is
+  the app that ships; `apps/web` hooks and pure modules in `jsdom`, scoped
+  deliberately — no full-page component trees, and nothing that re-asserts
+  what an end-to-end spec already covers. Use `pnpm test:watch` while
+  working and `pnpm test:coverage` before pushing; the coverage thresholds
+  are a merge gate.
+- **End-to-end — Playwright (`*.spec.ts`).** `apps/web` in a real browser
+  against the production preview (`pnpm --filter web test:e2e`), and a thin
+  `apps/api` contract suite (`pnpm --filter api test:e2e`) run against a
+  live server on **both** runtimes. Keep the contract suite at the
+  boundary; exhaustive coverage belongs in the workerd Vitest project.
+
+  All of it runs in CI (`ci.yml`). See `docs/standards/testing.md` for the
+  per-case routing table when a test could plausibly go either way.
 - **Manual, three-pass:** Pass 1 (assume not implemented — graceful
   degradation), Pass 2 (assume implemented correctly — happy path), Pass 3
   (assume full of bugs/security flaws — actively attack it). See
@@ -91,9 +110,10 @@ substitutes for the other:
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
 
-All four must pass locally before you open a PR. CI (`ci.yml`) re-runs this
-same sequence plus the Playwright end-to-end stage — a local pass does not
-replace a green CI run, but a local failure means CI will fail too.
+All four must pass locally before you open a PR. `pnpm test` is Vitest
+only; CI (`ci.yml`) re-runs this same sequence plus `pnpm test:coverage`
+and both Playwright stages — a local pass does not replace a green CI run,
+but a local failure means CI will fail too.
 
 **Docker is not required for any of it.** The gate above, `pnpm dev`, and
 both apps run entirely on the host.
@@ -138,9 +158,9 @@ deploys. Two things to keep in mind when you touch either app:
   values may ever be build args — build args live in image history.
 - **`apps/api` runs on two runtimes.** The image serves the same Hono app
   through `@hono/node-server`; production runs workerd. CI runs the API
-  Playwright suite against both. A route reaching for a Cloudflare-only
-  API needs a Node path in the adapter or an explicit Worker-only marker
-  on its spec — never a silent divergence.
+  Playwright **contract** suite (`apps/api/e2e/`) against both. A route
+  reaching for a Cloudflare-only API needs a Node path in the adapter or an
+  explicit Worker-only marker on its spec — never a silent divergence.
 
 ## PR template body
 
@@ -163,7 +183,8 @@ What changed and why, in 2-3 sentences.
 - [ ] N/A — no behavior change
 
 ## Automated test evidence
-Playwright run output/summary pasted here.
+Vitest summary (`pnpm test:coverage` — include the coverage table) and
+Playwright summary for every suite the change touches.
 
 ## Manual test log (three-pass, §10)
 ### Pass 1 — Assume not implemented

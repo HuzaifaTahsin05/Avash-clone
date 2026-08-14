@@ -31,6 +31,19 @@ on:
   schedule:
     - cron: "0 4 * * 1"
   workflow_dispatch:
+    inputs:
+      bypass_gates:
+        description: >-
+          Break-glass only. Skip waiting on ci/codeql before building
+          images and deploying — the gate jobs still run and still show
+          their real red/green, this only stops a bypassed one from
+          blocking deploy-web/deploy-api. Does not skip a build failure
+          inside images/ml-image itself, and does not touch each
+          environment's own required-reviewer protection rule, which
+          still applies normally. Only meaningful on this manual trigger;
+          ignored on push/pull_request/schedule.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -57,6 +70,7 @@ jobs:
       pages_branch: ${{ steps.resolve.outputs.pages_branch }}
       wrangler_env: ${{ steps.resolve.outputs.wrangler_env }}
       origin_var: ${{ steps.resolve.outputs.origin_var }}
+      environment: ${{ steps.resolve.outputs.channel }}
     steps:
       - id: resolve
         env:
@@ -110,6 +124,10 @@ jobs:
               ;;
           esac
 
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.bypass_gates }}" = "true" ]; then
+            echo "::warning::bypass_gates is set — images/ml-image will proceed even if ci or codeql failed. Deploy still requires images/ml-image's own steps to succeed and each environment's required-reviewer rule, if any."
+          fi
+
           {
             echo "channel=$channel"
             echo "publish=$publish"
@@ -138,6 +156,15 @@ jobs:
 
   images:
     needs: [context, ci, codeql]
+    # always() so a bypassed ci/codeql failure doesn't auto-skip this job
+    # (default needs: behavior skips downstream when any need fails).
+    # The explicit per-need checks below are what actually gate it: a
+    # normal run still requires both to have succeeded, same as before.
+    if: |
+      always() &&
+      needs.context.result == 'success' &&
+      (needs.ci.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.bypass_gates == true)) &&
+      (needs.codeql.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.bypass_gates == true))
     permissions:
       contents: read
       packages: write
@@ -148,6 +175,10 @@ jobs:
 
   ml-image:
     needs: [ci, codeql]
+    if: |
+      always() &&
+      (needs.ci.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.bypass_gates == true)) &&
+      (needs.codeql.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.bypass_gates == true))
     uses: ./.github/workflows/docker-image-scan.yml
 
   # ---- Stage 3: deploy. Reached only through both stages above. ----
@@ -155,20 +186,45 @@ jobs:
   deploy-web:
     needs: [context, images, ml-image]
     if: needs.context.outputs.deploy_web == 'true'
+    # No `environment:` here — GitHub's schema does not allow it on a job
+    # that also has `uses:` (a reusable-workflow call). This was already
+    # present, and already invalid, before this change (confirmed against
+    # the base commit with `act -l`); the pipeline has never actually run
+    # past this point. `deploy-web.yml`'s own job carries
+    # `environment: ${{ inputs.environment }}` instead, which is the
+    # only place GitHub's schema allows it — see
+    # docs/security/github-environments.md § Step 6 for the secret-scope
+    # reasoning that shape still needs to satisfy.
     permissions:
       contents: read
       deployments: write
     uses: ./.github/workflows/deploy-web.yml
-    secrets: inherit
+    # Named, not `secrets: inherit` (docs/security/github-environments.md
+    # § Step 6) — an explicit list is an audit trail and makes adding a
+    # secret a reviewable diff instead of a standing grant of everything.
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     with:
+      environment: ${{ needs.context.outputs.environment }}
       pages_branch: ${{ needs.context.outputs.pages_branch }}
 
   deploy-api:
     needs: [context, images, ml-image]
     if: needs.context.outputs.deploy_api == 'true'
+    # See deploy-web's comment above — same reasoning, same fix.
     uses: ./.github/workflows/deploy-api.yml
-    secrets: inherit
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
     with:
+      environment: ${{ needs.context.outputs.environment }}
       wrangler_env: ${{ needs.context.outputs.wrangler_env }}
       smoke_test_origin_var: ${{ needs.context.outputs.origin_var }}
 

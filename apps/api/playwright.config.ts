@@ -17,7 +17,7 @@ import { defineConfig } from '@playwright/test';
 const isContainerTarget = process.env.API_TEST_TARGET === 'container';
 
 export default defineConfig({
-  testDir: './test',
+  testDir: './e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

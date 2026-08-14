@@ -9,6 +9,7 @@
     ".": "./index.ts"
   },
   "dependencies": {
+    "@avash/db": "workspace:*",
     "zod": "^4.4.3"
   }
 }

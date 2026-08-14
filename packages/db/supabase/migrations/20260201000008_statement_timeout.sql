@@ -1,0 +1,12 @@
+-- docs/PROJECT_PLAN.md §4.2, §8, §14 — DB_STATEMENT_TIMEOUT_S = 5. Set at
+-- the API role level (Supavisor transaction-mode connections all run as
+-- this role), not per-session, so it cannot be bypassed by a client that
+-- simply never sets it.
+--
+-- `postgres` is the connecting role on this local container and on a
+-- freshly provisioned Supabase project's migration runner alike. If the
+-- production project's Supavisor pool authenticates as a different role
+-- (Supabase sometimes provisions `authenticator` for PostgREST/API
+-- traffic specifically), re-run this ALTER against that role name too —
+-- it is idempotent and safe to repeat.
+alter role postgres set statement_timeout = '5s';

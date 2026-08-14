@@ -6,8 +6,10 @@
 # as CORS_ALLOWED_ORIGINS in docs/constants-registry.md) — update both
 # together, in the same change, once the real domain exists. No Gemini
 # domain appears here: the browser never calls Gemini directly (§7.4).
+# img-src additionally allows the OSM tile host (ADR-013, MAP_TILE_URL_TEMPLATE)
+# -- raster tiles are <img> requests, so they belong in img-src, not connect-src.
 /*
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https://avash-api-production.workers.dev; script-src 'self'; style-src 'self' 'unsafe-inline';
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://avash-api-production.workers.dev; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org;
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY

@@ -19,6 +19,11 @@
 # Every key below is SERVER-ONLY. None may ever be referenced under
 # apps/web/src — see apps/web/.env.example for the client-side set.
 
+# Supabase project URL. Not secret on its own (secrets-matrix.md), but
+# read server-side only, under this name, alongside the service-role key
+# it's paired with for the GET /health/db readiness probe.
+SUPABASE_URL=
+
 # Supabase service-role key — full bypass of Row Level Security.
 # The single most sensitive credential in this project.
 SUPABASE_SERVICE_ROLE_KEY=

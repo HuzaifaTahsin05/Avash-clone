@@ -7,9 +7,10 @@ has not yet been reached.
 ## Reading order for new contributors
 
 1. [`docs/PROJECT_PLAN.md`](PROJECT_PLAN.md) — the single source of truth; read this first, in full.
-2. [`../AGENTS.md`](../AGENTS.md) — hard rules for AI coding agents.
+2. [`../AGENTS.md`](../AGENTS.md) — hard rules for AI coding agents, and the canonical rule set every agent config points at.
 3. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — how a change gets merged.
 4. `docs/standards/*` — the concrete coding standards the plan's principles compile down to.
+5. [`standards/agent-compliance.md`](standards/agent-compliance.md) — if you are configuring an AI agent to work here, or wondering why a hook refused something.
 
 ## Top-level
 
@@ -21,6 +22,7 @@ has not yet been reached.
 | [`constants-registry.md`](constants-registry.md) | Master table of all 22 §14 constants with implementation status | Existing |
 | [`docker.md`](docker.md) | Container runbook: the local PostGIS database, the ML image, the two app images, the optional dev container, and the images CI builds | Existing |
 | [`ci-cd.md`](ci-cd.md) | Every CI/CD workflow: trigger, steps, required secrets, failure modes, rollback procedure | Existing |
+| [`manual-deploy.md`](manual-deploy.md) | Deploying by hand without CI — per service (backend, frontend, database, jobs, ML artifact, images) and per environment (preview, production), with verification and rollback for each | Existing |
 
 ## `docs/adr/` — Architectural Decision Records
 
@@ -47,15 +49,18 @@ has not yet been reached.
 |---|---|---|
 | [`standards/frontend.md`](standards/frontend.md) | Definitive React/Vite conventions: routing, state, optional-chaining checklist, bundle budget, accessibility | Existing |
 | [`standards/backend.md`](standards/backend.md) | Hono routing conventions, middleware order, error boundary pattern, Supavisor pooling, the R7 jobs-endpoint ban | Existing |
-| [`standards/testing.md`](standards/testing.md) | Two-layer testing strategy: Playwright (packages/*, apps/api, apps/web e2e), three-pass manual protocol | Existing |
-| [`standards/git-workflow.md`](standards/git-workflow.md) | Branch naming, commit conventions, vertical-slice-per-PR rule, merge gates | Existing |
+| [`standards/testing.md`](standards/testing.md) | Three-layer testing strategy: Vitest for unit/integration (`packages/*`, `apps/api` in workerd, `apps/web` hooks), Playwright for end-to-end (`apps/web` browser, `apps/api` dual-runtime contract), plus the three-pass manual protocol; coverage thresholds and the per-case routing table | Existing |
+| [`standards/agent-compliance.md`](standards/agent-compliance.md) | How agent rules are enforced without being asked: four layers (instruction files → tool hooks → git hooks → CI gates), the eager/lazy context split and its token budget, and the review protocol for agent-driven QA | Existing — Layer 1 in place, Layers 2–4 specified |
+| [`standards/parallel-work.md`](standards/parallel-work.md) | Running multiple agents and developers concurrently: contract-first phasing, what must never run in parallel, path ownership, the worktree protocol, and the integration seat | Existing |
+| [`standards/git-workflow.md`](standards/git-workflow.md) | Local-only feature branches and the promotion path to `upstream/main`, branch naming, commit conventions, vertical-slice-per-PR rule, merge gates | Existing |
 
 ## `docs/data-schema/`
 
 | File | Description | Status |
 |---|---|---|
-| [`data-schema/schema.md`](data-schema/schema.md) | Full §4 PostGIS schema reference: every table, index, and the ER diagram (documents the *target* schema; SQL ships once the database build-out lands) | Existing, updated when the schema ships |
+| [`data-schema/schema.md`](data-schema/schema.md) | Full §4 PostGIS schema reference: every table, index, the FK `on delete`/`on update` action policy (§4.3), and the ER diagram (documents the *target* schema; SQL ships once the database build-out lands) | Existing, updated when the schema ships |
 | [`data-schema/rls-policies.md`](data-schema/rls-policies.md) | Per-table RLS intent for all four operations, on every table | Existing |
+| [`data-schema/dfd.md`](data-schema/dfd.md) | Data Flow Diagram (Gane–Sarson): context-level (Level 0) and process-decomposition (Level 1), external entities/processes/data stores distinct from the ERD and the system architecture diagram | Existing |
 
 ## `docs/ml/`
 
@@ -71,6 +76,7 @@ has not yet been reached.
 |---|---|---|
 | [`security/threat-model.md`](security/threat-model.md) | Full STRIDE model, organized by feature | Existing |
 | [`security/secrets-matrix.md`](security/secrets-matrix.md) | Environment variable inventory, exposure classification, rotation procedure | Existing |
+| [`security/github-environments.md`](security/github-environments.md) | Step-by-step procedure for splitting deploy credentials into `preview` and `production` GitHub Environments: branch policies, required reviewers, per-environment secrets, the workflow edits, verification, and rotation | Existing — procedure written, not yet applied |
 | [`security/rate-limiting.md`](security/rate-limiting.md) | Rate-limit guard table, Upstash sliding-window approach, Gemini quota fallback behavior | Existing |
 
 ## `docs/features/` — per-feature documentation (§12 template)
@@ -83,9 +89,9 @@ per-feature docs cannot describe behavior that doesn't exist yet).
 | File | Description | Status |
 |---|---|---|
 | [`features/frontend-scaffold.md`](features/frontend-scaffold.md) | The single-page frontend shell: what it renders, bundle budget, e2e coverage | Existing |
-| `features/health-endpoint.md` | `/health` liveness endpoint; documents the liveness-vs-readiness split ahead of the database readiness probe | Planned |
-| `features/integration.md` | Frontend↔backend integration: request lifecycle, CORS matrix, shared-contract rule, UI-state↔spec mapping | Planned |
-| `features/database.md` | Migration workflow, rollback procedure, what shipped vs. what `schema.md` documents | Planned |
+| [`features/health-endpoint.md`](features/health-endpoint.md) | `/health` liveness endpoint and `/health/db` readiness probe | Existing |
+| [`features/integration.md`](features/integration.md) | Frontend↔backend integration: request lifecycle, CORS matrix, shared-contract rule, UI-state↔spec mapping | Existing |
+| [`features/database.md`](features/database.md) | Migration workflow, seed/refresh tooling, what shipped vs. what `schema.md` documents | Existing |
 
 Further feature docs (breeding reports, blood inventory, symptom checker,
 alerts, news aggregator) are added as their vertical slices ship, per
@@ -97,4 +103,4 @@ scope isn't finalized until the slice that builds them begins.
 | File | Description | Status |
 |---|---|---|
 | `testing/manual-test-log.md` | Running master log of all three-pass manual test results, with reviewer sign-off | Planned |
-| `testing/verification-report.md` | Final verification report: what was tested, found, fixed; coverage, Playwright summary, Lighthouse scores, known limitations | Planned |
+| `testing/verification-report.md` | Final verification report: what was tested, found, fixed; Vitest coverage table, Playwright suite summary, Lighthouse scores, known limitations | Existing |

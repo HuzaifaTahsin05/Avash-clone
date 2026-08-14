@@ -1,0 +1,34 @@
+#!/bin/sh
+# Layer 3 (docs/standards/agent-compliance.md).
+#
+# Enforces the Conventional Commits type list and rejects internal planning
+# labels in the message itself — check-internal-refs.mjs (pre-commit) only
+# scans tracked files, not the commit message text.
+#
+# POSIX sh: this repo is developed on Windows via Git Bash.
+
+set -e
+
+msg_file="$1"
+subject=$(head -n 1 "$msg_file")
+
+# docs/standards/git-workflow.md § Conventional Commits
+type_re='^(feat|fix|docs|chore|ci|sec)(\([a-z0-9-]+\))?!?: .+'
+
+if ! printf '%s\n' "$subject" | grep -qE "$type_re"; then
+  echo "commit-msg: subject does not start with a Conventional Commits type."
+  echo "  Expected one of: feat: fix: docs: chore: ci: sec: (optionally with a (scope))"
+  echo "  Got: $subject"
+  echo "  See docs/standards/git-workflow.md § Conventional Commits."
+  exit 1
+fi
+
+# No internal milestone/task-ID reference in the commit message itself.
+if grep -qE '\bM[1-9][0-9]?(-T[0-9]+)?\b|§\s?0\.5[A-F]\b' "$msg_file"; then
+  echo "commit-msg: message references an internal planning label (milestone/task ID)."
+  echo "  Describe the change by feature or by a stable docs/PROJECT_PLAN.md section number instead."
+  echo "  See CONTRIBUTING.md § Terminology."
+  exit 1
+fi
+
+exit 0

@@ -13,6 +13,7 @@ enabled = true
 # in CI/CD deploy workflows (see docs/security/secrets-matrix.md).
 #
 # Required secret inventory (names only — values are never committed):
+#   SUPABASE_URL
 #   SUPABASE_SERVICE_ROLE_KEY
 #   SUPABASE_JWT_SECRET
 #   GEMINI_API_KEY

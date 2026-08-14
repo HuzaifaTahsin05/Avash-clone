@@ -20,11 +20,30 @@
 - [ ] N/A — no behavior change
 
 ## Automated test evidence
-<!-- Paste Playwright run output/summary (packages/*, apps/api, and/or apps/web e2e). -->
+
+<!-- Both layers, for every suite this change touches. See
+     docs/standards/testing.md. -->
+
+**Vitest** — unit + integration (`packages/*`, `apps/api` in workerd,
+`apps/web` hooks). Paste `pnpm test:coverage` output including the
+coverage table; thresholds are a merge gate.
 
 ```
 <paste here>
 ```
+
+**Playwright** — end-to-end (`apps/web` browser suite, `apps/api`
+contract suite). Paste the run summary; for an `apps/api` change include
+**both** runtimes (`wrangler dev` and `API_TEST_TARGET=container`).
+
+```
+<paste here>
+```
+
+- [ ] No assertion matrix was mirrored across both layers (exhaustive in
+      Vitest, one representative case in the contract suite)
+- [ ] No uncovered branch remains in CORS, rate-limit, auth, validation,
+      or error-boundary code
 
 ## Manual test log — three-pass protocol (§10)
 

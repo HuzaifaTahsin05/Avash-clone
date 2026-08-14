@@ -61,25 +61,46 @@ Supabase, no Gemini, no Upstash call happens anywhere in this request path
   only non-secret `[vars]` entries with real values, and those values are
   currently the placeholder domain `avash.pages.dev`
   (`docs/constants-registry.md`) pending a real Cloudflare Pages project.
-- Tests live in `apps/api/test/`, mirroring `src/` (`test/routes/health.spec.ts`
+- Tests live in `apps/api/test/`, mirroring `src/` (`test/routes/health.test.ts`
   for `src/routes/health.ts`) — a dedicated top-level test directory, not
-  colocated with source, consistent with `apps/web/e2e/`. Written with
-  **Playwright**, not Vitest — `apps/api/playwright.config.ts` starts a
-  real `wrangler dev` instance (`webServer`) and every spec except the
-  error-boundary one issues a genuine HTTP request against it via the
-  `request` fixture, matching how `apps/web`'s specs test the production
-  preview rather than an in-process render. `apps/api` has a second
-  `tsconfig.test.json` alongside its primary `tsconfig.json` specifically
-  so Node's `process` global (needed by `playwright.config.ts`) never
-  leaks into the Worker source's type-checking (`docs/standards/backend.md`).
+  colocated with source, consistent with `apps/web/e2e/`. Coverage is split
+  across the two runners per `docs/standards/testing.md`:
+  - **Vitest, inside workerd** (`apps/api/test/**/*.test.ts`, via
+    `@cloudflare/vitest-pool-workers`) carries the exhaustive cases —
+    every status path, the full CORS allow/deny matrix, preflight, header
+    handling, and the error-boundary path. Running in workerd rather than
+    plain Node is the point: the app under test is the app that ships,
+    with the same globals and the same `Request`/`Response`.
+  - **Playwright, black-box over HTTP** (`apps/api/e2e/*.spec.ts`) carries
+    one representative assertion per boundary — health `200`, one CORS
+    rejection, one error shape — and runs against both `wrangler dev` and
+    the Node container image. That dual run is ADR-012's parity
+    obligation, not redundant coverage.
+
+  `apps/api` has a second `tsconfig.test.json` alongside its primary
+  `tsconfig.json` specifically so Node's ambient `process` global (needed
+  by `vitest.config.ts` and `playwright.config.ts`) never leaks into the
+  Worker source's type-checking (`docs/standards/backend.md`).
 
 **Liveness vs. readiness:** `/health` is a **liveness** probe only — it
 answers "is the Worker running," not "is the database reachable." It
 intentionally has zero external dependencies so the CI pipeline — which is
 built before the database schema exists — never needs live Supabase
-credentials to pass. The database schema work adds a separate, additive
-`GET /health/db` **readiness** probe once the schema exists; nothing in
-this file is rewritten to add it.
+credentials to pass.
+
+**`GET /health/db` (shipped):** a separate, additive **readiness**
+probe — a bounded `select id from regions limit 1` through
+`apps/api/src/lib/supabaseAdmin.ts` (a fresh, request-scoped
+`@supabase/supabase-js` client built from the Worker's own `env`, never a
+module-level singleton). Returns `{ ready, reason, requestId }`
+(`healthDbResponseSchema`, `packages/types/api.ts`) — `200` when reachable,
+`503` with `ready: false` and a generic `reason` otherwise. Any thrown
+error (missing `SUPABASE_URL`, network failure, auth failure) collapses to
+the same generic shape (R4/R10); the real cause is never echoed back.
+`/health` staying dependency-free is unaffected by `/health/db` ever
+failing — verified locally with `SUPABASE_URL` unset: `/health` still
+returns `200`, `/health/db` returns a well-typed `503`. See
+`docs/features/database.md` for the schema this probe reads.
 
 **Critical Constants:**
 
@@ -94,15 +115,15 @@ this file is rewritten to add it.
 - R7 (no background job as an HTTP endpoint): no route under
   `/api/jobs/*` exists; `/health` and the API index (`GET /`) are the only
   two mounted routes.
-- R10 (generic user-facing errors): proven with a dedicated Playwright
-  case (`test/routes/health.spec.ts`) that throws inside a handler and
-  asserts the response body contains neither the thrown message nor the
-  string `"stack"`, while the server-side `handleError()` call still
-  receives the full error and stack for logging. This one spec runs
-  in-process against a throwaway Hono instance rather than the live
-  `wrangler dev` server, since it would otherwise require a debug-only
-  route that deliberately throws to exist in the real, deployed app.
-- CORS allow-list proven with three Playwright cases issuing real HTTP
+- R10 (generic user-facing errors): proven with a dedicated case that
+  throws inside a handler and asserts the response body contains neither
+  the thrown message nor the string `"stack"`, while the server-side
+  `handleError()` call still receives the full error and stack for
+  logging. This belongs in the Vitest workerd project, where a throwaway
+  Hono instance is an ordinary in-process construction — the alternative
+  is a debug-only route that deliberately throws existing in the real,
+  deployed app, which is not acceptable.
+- CORS allow-list proven with three cases issuing real HTTP
   requests against `wrangler dev`: a disallowed origin
   (`https://evil.example`) gets no `Access-Control-Allow-Origin` header;
   the exact allowed origin (`https://avash.pages.dev`) gets the matching
@@ -113,9 +134,42 @@ this file is rewritten to add it.
   user-reported failure can always be correlated to a server-side log
   line without exposing internal detail.
 
-**Manual Test Log:** not yet run as a formal signed-off pass. The backend
-scaffold's `curl` evidence (security headers, CORS rejection,
-typed 404) stands in as the informal verification for this slice; the
-formal, reviewer-signed three-pass log is completed as part of the
-project's final verification sweep (`docs/standards/testing.md`). Last
-pass test date: none.
+**Manual Test Log:**
+
+Three-pass protocol against a local `wrangler dev` instance (`docs/standards/testing.md`).
+
+- **Pass 1 (assume not implemented):** `apps/web/e2e/health-integration.spec.ts`
+  and `apps/web/e2e/resilience.spec.ts` drive the UI through every degraded
+  state — API 500, non-JSON body, offline, schema-invalid payload, and a
+  request that never resolves (proving the client-side `AbortController`
+  timeout in `apps/web/src/lib/apiClient.ts` actually fires rather than
+  hanging forever) — before assuming the happy path works.
+- **Pass 2 (assume implemented correctly):** the full Playwright suite
+  (`apps/web/e2e/*.spec.ts`, `apps/api/e2e/health.spec.ts`) runs against
+  chromium and firefox; 3 consecutive runs, 38/38 web specs and 5/5 API
+  specs green, zero flakes, zero `waitForTimeout` usage.
+- **Pass 3 (assume full of bugs — direct `curl` against `wrangler dev`):**
+  - Disallowed origin (`https://evil.example`) GET: `200`, no
+    `Access-Control-Allow-Origin` header.
+  - Disallowed origin OPTIONS preflight: bare `403`.
+  - Allowed origin (`https://avash.pages.dev`) GET: `200` with the matching
+    `Access-Control-Allow-Origin` header.
+  - `POST /health` (method not implemented for this route): `404`, no
+    method-not-allowed detail leaked.
+  - ~2 MB oversized POST body: `404` before any body parsing.
+  - XSS-shaped query string (`?x=<script>...`): not reflected anywhere in
+    the response body.
+  - `/api/jobs/weather-ingest`, `/jobs`: both `404` — confirms no
+    background job is reachable as an HTTP endpoint (R7).
+  - Unknown route (`/definitely-not-a-route`): generic typed
+    `{"error":{"message":"...","requestId":"..."}}` body, no stack trace,
+    no internal path.
+  - CRLF-bearing header (`X-Forwarded-For: 1.1.1.1\r\nX-Injected: yes`):
+    handled harmlessly, no header injection observed.
+  - Path-traversal attempt (`/../../etc/passwd`): `404`.
+  - `GET /health/db` with no real Supabase credentials configured:
+    `503`, generic `{"ready":false,"reason":"database unreachable",...}` —
+    the real cause (missing `SUPABASE_URL`) is never echoed back.
+
+No finding required a code change; every case matched the documented
+behavior above. Last pass test date: 2026-08-14.

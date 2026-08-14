@@ -9,24 +9,28 @@
     "build:node": "esbuild server/node-server.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist-node/server.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.node.json",
-    "test": "playwright test",
-    "test:ui": "playwright test --ui"
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@avash/geo": "workspace:*",
     "@avash/logger": "workspace:*",
     "@avash/types": "workspace:*",
     "@hono/node-server": "^2.0.12",
+    "@supabase/supabase-js": "^2.112.3",
     "hono": "^4.5.11",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@avash/eslint-config": "workspace:*",
+    "@cloudflare/vitest-pool-workers": "^0.10.15",
     "@cloudflare/workers-types": "^5.20260804.1",
     "@playwright/test": "^1.46.1",
     "@types/node": "^26.1.2",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
     "typescript": "^6.0.3",
+    "vitest": "^3.2.4",
     "wrangler": "^4.118.0"
   }
 }

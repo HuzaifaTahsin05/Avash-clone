@@ -1,5 +1,9 @@
 # CI/CD — Workflows, Secrets & Runbook
 
+**Read when:** editing .github/workflows, debugging a red pipeline, or configuring CI secrets.
+
+**Decides:** Every workflow trigger and step, required secrets, gate locations, and rollback.
+
 **Gist:** every workflow under `.github/workflows/` plus `.github/dependabot.yml`,
 what triggers each one, what secret or repository variable it needs, how it
 fails, and how to debug a red run. `docs/docker.md` owns the *local* half of
@@ -46,12 +50,80 @@ Branch → channel is resolved once, in `pipeline.yml`'s `context` job, and
 passed down as workflow inputs. No downstream job re-derives it from
 `github.ref`.
 
+### Manual runs and urgent deploys
+
+Three ways to trigger a deploy by hand, from least to most bypassed:
+
+**1. Dispatch the full pipeline.** `gh workflow run pipeline.yml --ref dev`
+(or `--ref main`) runs the full graph above exactly as a push would, with
+the same per-environment secret resolution, and deploys if `ci`/`codeql`
+are green. This is the normal path for a manual re-run — nothing is
+skipped.
+
+**2. Dispatch `deploy-web.yml`/`deploy-api.yml` directly**, for a deploy
+that doesn't need a fresh image build/scan at all — e.g. re-pushing a
+build that already passed CI once:
+
+```bash
+gh workflow run deploy-web.yml --ref dev -f environment=preview -f pages_branch=dev
+gh workflow run deploy-api.yml --ref dev -f environment=preview -f wrangler_env=preview -f smoke_test_origin_var=PREVIEW_API_ORIGIN
+```
+
+Both workflows declare `environment: ${{ inputs.environment }}` on their
+own job — the only place GitHub's schema allows it on a job that
+`pipeline.yml` also calls via `uses:` (declaring it on both is a schema
+error, not just a style choice; see the corrected note in
+`docs/security/github-environments.md` § Step 6). That single
+declaration is what makes both this direct dispatch and a
+`pipeline.yml`-driven deploy resolve the right environment's
+secrets/vars and require its protection rules. Validate any future edit
+to these three workflows with `act -l -W <file>` before pushing —
+`pipeline.yml` failed silently (zero jobs, "Invalid workflow file") for
+several hours on this branch before that check caught it.
+
+**3. Dispatch `pipeline.yml` with the gate bypass**, for the case where
+`ci`/`codeql` are red — the gates are red for a reason unrelated to
+the code being shipped (a missing external credential, an infra dependency
+that isn't provisioned yet, anything you have independently verified is safe
+to ship past) — the manual trigger takes a `bypass_gates` boolean input,
+default `false`:
+
+```bash
+gh workflow run pipeline.yml --ref dev -f bypass_gates=true
+```
+
+What it does and does not change:
+
+- `ci` and `codeql` still run and still report their real pass/fail — this
+  does not hide or skip them, it only stops a **bypassed** one from
+  auto-skipping `images`/`ml-image` downstream (the default `needs:`
+  behavior, which normally treats "a need failed" and "a need was skipped"
+  the same way).
+- `images`/`ml-image` still have to succeed on their own merits — a real
+  Docker build failure or a Trivy HIGH/CRITICAL finding still blocks
+  `deploy-web`/`deploy-api` exactly as it does on a normal run. The bypass
+  only removes the `ci`/`codeql` precondition, not the image stage itself.
+- Each environment's required-reviewer protection rule (if configured,
+  `docs/security/github-environments.md`) is untouched and still applies —
+  this input cannot skip a human approval gate.
+- The run logs a `::warning::` in the `context` job's summary whenever it's
+  set, so a bypassed deploy is never quiet in the Actions history.
+- It only does anything on `workflow_dispatch`; the input is ignored on
+  `push`/`pull_request`/`schedule`.
+
+This exists specifically for the situation where the API contract suite
+(`e2e-api`, `api-container-parity` in `ci.yml`) is red because no hosted
+Supabase project has secrets wired into CI yet (§ Required secrets above) —
+a known, tracked gap, not a defect in what's being deployed. Use it
+narrowly and say why in the deploy record (`docs/manual-deploy.md` §
+Record it).
+
 ## Workflow index
 
 | Workflow | Triggers | Purpose |
 |---|---|---|
 | `pipeline.yml` | PR, push to `main`/`dev`, weekly, manual | **The entrypoint.** Composes every stage below and owns all sequencing, concurrency and branch routing |
-| `ci.yml` | called | Gates as concurrent jobs: `lint`, `typecheck`, `static-analysis`, `test`, `build` → `e2e-web`, plus `api-container-parity` and `postgis-service` (§11) |
+| `ci.yml` | called | Gates as concurrent jobs: `lint`, `typecheck`, `static-analysis`, `test`, `e2e-api`, `build` → `e2e-web`, plus `api-container-parity` and `postgis-service` (§11) |
 | `codeql.yml` | called | SAST across `javascript-typescript` and `python` — see § The SAST gate |
 | `build-images.yml` | called | hadolint + build + Trivy + smoke test + publish for `apps/web`/`apps/api` images (ADR-012) |
 | `docker-image-scan.yml` | called | hadolint + Trivy on the ML image (ADR-011) |
@@ -108,13 +180,14 @@ lacking a credential it was never given.
 |---|---|---|---|
 | `CLOUDFLARE_API_TOKEN` | secret | `deploy-web.yml`, `deploy-api.yml` | Any deploy |
 | `CLOUDFLARE_ACCOUNT_ID` | secret | `deploy-web.yml`, `deploy-api.yml` | Any deploy |
-| `SUPABASE_SERVICE_ROLE_KEY` | secret | `deploy-api.yml`, `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | API deploy, all three cron jobs once implemented |
+| `SUPABASE_SERVICE_ROLE_KEY` | secret | `deploy-api.yml`, `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | API deploy, weather-ingest cron; the other two cron jobs once implemented |
 | `SUPABASE_JWT_SECRET` | secret | `deploy-api.yml` | API deploy |
 | `GEMINI_API_KEY` | secret | `deploy-api.yml`, `cron-news-scan.yml` | API deploy, news-scan job |
 | `UPSTASH_REDIS_REST_URL` | secret | `deploy-api.yml` | API deploy |
 | `UPSTASH_REDIS_REST_TOKEN` | secret | `deploy-api.yml` | API deploy |
 | `TURNSTILE_SECRET_KEY` | secret | `deploy-api.yml` | API deploy |
-| `SUPABASE_URL` | secret | `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | Cron jobs once implemented |
+| `SUPABASE_URL` | secret | `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | Weather-ingest cron; the other two cron jobs once implemented |
+| `OPENWEATHERMAP_API_KEY` | secret | `cron-weather-ingest.yml` | Weather-ingest cron — read directly by `scripts/jobs/weather-ingest.ts`, never logged (the key rides in the request query string) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | secret | `cron-batch-predict.yml` | Web Push delivery from the batch predict job |
 | `GITHUB_TOKEN` | built-in | `build-images.yml` | Publishing images to GHCR (no manual setup) |
 | `VITE_PUBLIC_API_BASE_URL` | repository **variable** | `deploy-web.yml` | Building `apps/web` for Pages — the deployed Worker's origin |
@@ -194,15 +267,32 @@ Two independent choices when adding one of these: **secret vs. variable**
 is already answered by the Kind column in the table above — secret for
 anything that grants access, repository variable for anything that's
 already public once `apps/web` ships it. **Repository vs. environment
-scope** is not: GitHub also lets you scope a secret to a named
-*environment* (`Settings → Environments`) rather than the whole
-repository, gated on required reviewers or a wait timer. None of this
-project's workflows declare an `environment:` key, so an environment-scoped
-secret would simply never be injected — **use repository scope for
-everything in the table above.** Revisit this only if a future workflow
-adds a deployment gate that needs one (e.g. manual approval before a
-production `wrangler deploy`), and document that workflow's `environment:`
-value here at the same time.
+scope** is the second choice, and it is mid-migration:
+
+- **The `preview` / `production` GitHub Environments, the branch
+  policies, the required reviewer on `production`, and the workflow-level
+  `environment:` wiring all exist already** — `pipeline.yml`'s
+  `deploy-web` / `deploy-api` jobs declare `environment:`, and
+  `secrets: inherit` is gone in favor of an explicit per-secret list. See
+  `docs/security/github-environments.md` § Current status for exactly
+  what's done and what's still outstanding.
+- **What's still outstanding is the credentials themselves.** Nothing has
+  been set at environment scope yet — no second Cloudflare token, no
+  preview Supabase/Upstash/Gemini/Turnstile project. Until an
+  environment's secrets are actually populated (`docs/security/github-environments.md`
+  § Step 4), a deploy targeting it reads an empty token and takes the
+  documented "not configured — skip cleanly" path: the pipeline stays
+  green and deploys nothing, which is correct for a half-migrated
+  credential set. Follow `docs/security/github-environments.md` §§ 4–8 to
+  finish the cutover; do not set the `deploy-web.yml`/`deploy-api.yml`
+  rows above at repository scope instead, since `pipeline.yml` no longer
+  passes repository-scoped copies of those specific secrets down to them.
+  **This split does not touch the cron workflows** — `cron-weather-ingest.yml`,
+  `cron-batch-predict.yml`, and `cron-news-scan.yml` declare no
+  `environment:` and still read `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `GEMINI_API_KEY`, and the `VAPID_*` keys at repository scope, by design —
+  they run on a schedule, not through a deploy gate, and stay on the
+  repository-scope instructions below.
 
 Via the web UI: **Settings → Secrets and variables → Actions**, then
 **New repository secret** (for `secret`-kind rows in the table above) or
@@ -271,13 +361,10 @@ expected, rather than trying to inspect the value directly.
 
 `build-images.yml` builds the published `avash-web` image against
 `vars.PUBLIC_API_BASE_URL`, falling back to `http://localhost:8787` when
-unset. **This repository variable has not been set yet** — no Cloudflare
-Pages project domain exists (the same gap noted in
-`docs/constants-registry.md` for `CORS_ALLOWED_ORIGINS`). Until it is set,
-the image published to `ghcr.io/<owner>/avash-web` is compiled against
-`localhost` and is useful for local verification only, not as a
-deployable artifact. Set it once the real API origin is known, in the same
-change that updates `wrangler.toml`'s `CORS_ALLOWED_ORIGINS` placeholder.
+unset. Until it is set, the image published to `ghcr.io/<owner>/avash-web`
+is compiled against `localhost` and is useful for local verification only,
+not as a deployable artifact. Set it once the real API origin is known, in
+the same change that updates `wrangler.toml`'s `CORS_ALLOWED_ORIGINS` placeholder.
 
 ## Finding and sharing the live deployment link
 
@@ -339,12 +426,12 @@ Current scheduled load, assuming a 30-day month:
 | `cron-batch-predict.yml` | daily | ~30 | |
 | `pipeline.yml` | weekly (+ every PR and push to `main`/`dev`) | ~4 scheduled | Fans out to every gate and both image matrices, so a scheduled run is ~15 jobs |
 
-All three cron jobs currently exit at their stub guard without doing any
-work. That guard is deliberately placed **before** toolchain setup and
-dependency installation, so a no-op run bills roughly one minute rather
-than the three-to-five it would cost if it installed first. Do not reorder
-those steps: at ~390 no-op runs per month across the three, the ordering is
-the difference between roughly 400 and roughly 1,600 billed minutes.
+`cron-weather-ingest.yml` now does real work every run. `cron-news-scan.yml`
+and `cron-batch-predict.yml` still exit at their own stub guard without
+doing any work — that guard is deliberately placed **before** toolchain
+setup and dependency installation, so a no-op run bills roughly one minute
+rather than the three-to-five it would cost if it installed first. Do not
+reorder those steps in either still-stubbed workflow.
 
 ### Pausing a workflow — GitHub web UI
 
@@ -430,18 +517,25 @@ repository inactivity** (no commits). If the cron jobs stop firing after a
 quiet period, they were not deleted — re-enable them from the Actions tab.
 A run triggered manually does not reset that timer; a commit does.
 
-## Downloading a failed Playwright run's report and traces
+## Downloading test artifacts
 
-1. Open the failed run under the **Actions** tab.
-2. `ci.yml`'s `e2e-web` job uploads `playwright-report-web-<sha>` as an
-   artifact only `if: failure()` — it will not exist on a green run.
+1. Open the run under the **Actions** tab.
+2. `ci.yml`'s `test` job uploads a `coverage-<sha>` artifact **on every
+   run**, pass or fail — `pnpm test:coverage`'s HTML report
+   (`docs/standards/testing.md` § Coverage). `e2e-web` and `e2e-api` each
+   upload their own `playwright-report-*-<sha>` artifact, but only
+   `if: failure()` — it will not exist on a green run.
 3. Download the artifact zip from the run summary page (bottom of the
    page, **Artifacts** section) or via `gh run download <run-id>`.
-4. Unzip it and open `playwright-report/index.html` in a browser — it
-   includes the trace viewer for every failed spec, with screenshots and
-   the full network/console log at the point of failure.
-5. `apps/api` and `packages/*` specs use no browser fixture and produce no
-   trace; a failure there is diagnosed from the job log directly.
+4. For a Playwright report: unzip and open `playwright-report/index.html`
+   in a browser — it includes the trace viewer for every failed spec, with
+   screenshots and the full network/console log at the point of failure.
+   `apps/api`'s `e2e-api` suite uses the `request` fixture, not `page`, so
+   its report has no trace/screenshots — a failure there is diagnosed from
+   the job log and the request/response bodies Playwright prints inline.
+5. For the coverage artifact: unzip and open `coverage/index.html` for the
+   full per-file breakdown, or read `coverage/coverage-summary.json` for
+   the raw numbers a script would consume.
 
 ## The container-touching jobs
 
@@ -468,8 +562,9 @@ A run triggered manually does not reset that timer; a commit does.
   pass, and only when the caller sets `publish: true` — that is, on a push
   to `main` or `dev`, never from a pull request.
 - **`api-container-parity`** (`ci.yml`) — builds `apps/api/Dockerfile`,
-  starts it, and runs the *identical* `apps/api` Playwright suite against
-  it with `API_TEST_TARGET=container`, using the same
+  starts it, and runs the *identical* `apps/api` Playwright **contract**
+  suite (`apps/api/e2e/`) against it with `API_TEST_TARGET=container`,
+  using the same
   `CORS_ALLOWED_ORIGINS`/`CORS_PREVIEW_ORIGIN_SUFFIX` values `wrangler dev`
   reads locally from `.dev.vars`/`wrangler.toml`. This is ADR-012's parity
   obligation: a spec that passes against `wrangler dev` (workerd) but
@@ -533,7 +628,11 @@ job fails on a real finding:
 | No internal planning references | `ci.yml` → `static-analysis` job, `scripts/check-internal-refs.mjs` |
 | Client bundle env-var scan | `ci.yml` → `build` job, `scripts/scan-client-env.mjs` against built `apps/web/dist` |
 | Bundle budget (180 KB gzip) | `ci.yml` → `build` job, `scripts/check-bundle-budget.mjs` |
-| Failing Playwright spec (any package) | `ci.yml` → `test`, `e2e-web`, `api-container-parity` jobs |
+| Failing Vitest test (`packages/*`, `apps/api` in workerd, `apps/web` hooks) | `ci.yml` → `test` job, `pnpm test:coverage` |
+| Vitest coverage threshold miss | `ci.yml` → `test` job, `pnpm test:coverage` (`docs/standards/testing.md` § Coverage) |
+| Failing Playwright spec (`apps/web` browser, `apps/api` contract suite) | `ci.yml` → `e2e-web`, `e2e-api`, `api-container-parity` jobs |
+| Agent-governance drift | `ci.yml` → `static-analysis` job, `scripts/check-agent-sync.mjs` (`docs/standards/agent-compliance.md`) |
+| Promotion-path violation (PR from a feature branch, or into `main` from anything but `dev`) | `ci.yml` → `static-analysis` job, `scripts/check-promotion-path.mjs` |
 | CodeQL high/critical | `codeql.yml`, called by `pipeline.yml` — see § The SAST gate |
 | Model checksum mismatch | Not yet applicable — no ML artifact ships until the ML pipeline slice |
 | hadolint / Trivy | `build-images.yml` (app images), `docker-image-scan.yml` (ML image) |

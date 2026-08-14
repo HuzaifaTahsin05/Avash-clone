@@ -1,0 +1,22 @@
+# Required-reviewer routing (docs/standards/agent-compliance.md § Layer 4,
+# docs/security/github-environments.md). GitHub only enforces this where
+# branch protection has "Require review from Code Owners" turned on for
+# `main`/`dev` — this file alone does not gate anything.
+#
+# Default: every path falls back to the repo owner.
+*                                   @galibhabibullah786
+
+# Secret-touching and deploy-adjacent surfaces (R2, docs/security/secrets-matrix.md)
+# get the same owner today, listed explicitly so the routing is a deliberate
+# statement rather than an accident of the wildcard above — the first
+# additional maintainer this repo gets should be added here, not just to *.
+apps/api/src/routes/                @galibhabibullah786
+apps/api/src/lib/                   @galibhabibullah786
+scripts/jobs/                       @galibhabibullah786
+ml/serving/                         @galibhabibullah786
+
+# CI/CD and agent-governance config — changes here affect every future PR.
+.github/workflows/                  @galibhabibullah786
+docs/standards/                     @galibhabibullah786
+AGENTS.md                           @galibhabibullah786
+CLAUDE.md                           @galibhabibullah786

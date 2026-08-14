@@ -224,7 +224,7 @@ create index idx_regions_geom on regions using gist (geom);
 -- Weather ingestion (append-only)
 create table weather_observations (
   id bigint generated always as identity primary key,
-  region_id uuid references regions(id) on delete cascade,
+  region_id uuid references regions(id) on delete cascade on update cascade,
   observed_at timestamptz not null,
   temp_mean_c numeric(4,1),
   temp_min_c numeric(4,1),
@@ -239,7 +239,7 @@ create index idx_weather_region_time on weather_observations (region_id, observe
 -- Historical epidemiological ground truth (weekly aggregates)
 create table dengue_cases (
   id bigint generated always as identity primary key,
-  region_id uuid references regions(id) on delete cascade,
+  region_id uuid references regions(id) on delete cascade on update cascade,
   reported_week date not null,          -- ISO week start (Monday)
   case_count integer not null check (case_count >= 0),
   source text
@@ -249,7 +249,7 @@ create unique index uq_cases_region_week on dengue_cases (region_id, reported_we
 -- Model output (2 rows per region per run: horizon=2, horizon=4)
 create table risk_predictions (
   id bigint generated always as identity primary key,
-  region_id uuid references regions(id) on delete cascade,
+  region_id uuid references regions(id) on delete cascade on update cascade,
   prediction_date date not null,
   horizon_weeks smallint not null check (horizon_weeks in (2, 4)),
   risk_score numeric(4,3) not null check (risk_score between 0 and 1),
@@ -281,14 +281,14 @@ create index idx_summary_geom on region_risk_summary using gist (geom);
 -- Citizen-submitted breeding site reports
 create table breeding_reports (
   id uuid primary key default gen_random_uuid(),
-  reporter_id uuid references auth.users(id),
+  reporter_id uuid references auth.users(id) on delete set null on update cascade,
   geom geometry(Point, 4326) not null,
   description text,
   photo_url text,
   ai_validation jsonb,                  -- Gemini structured-output payload
   status text not null default 'pending'
     check (status in ('pending','verified','rejected','resolved')),
-  verified_by uuid references auth.users(id),
+  verified_by uuid references auth.users(id) on delete set null on update cascade,
   municipal_ref_id text,
   created_at timestamptz default now()
 );
@@ -311,25 +311,25 @@ create type blood_group as enum ('A+','A-','B+','B-','AB+','AB-','O+','O-');
 
 create table blood_inventory (
   id bigint generated always as identity primary key,
-  hospital_id uuid references hospitals(id) on delete cascade,
+  hospital_id uuid references hospitals(id) on delete cascade on update cascade,
   blood_group blood_group not null,
   units_available integer not null default 0 check (units_available >= 0),
   platelet_units integer default 0 check (platelet_units >= 0),
-  updated_by uuid references auth.users(id),
+  updated_by uuid references auth.users(id) on delete set null on update cascade,
   updated_at timestamptz default now(),
   unique (hospital_id, blood_group)
 );
 
 create table verified_hospital_staff (
-  user_id uuid references auth.users(id),
-  hospital_id uuid references hospitals(id),
+  user_id uuid references auth.users(id) on delete cascade on update cascade,
+  hospital_id uuid references hospitals(id) on delete cascade on update cascade,
   primary key (user_id, hospital_id)
 );
 
 -- Proximity alert subscriptions (geofence definition)
 create table alert_subscriptions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade on update cascade,
   geom geometry(Point, 4326) not null,
   radius_m integer not null default 2000 check (radius_m between 100 and 20000),
   active boolean default true,
@@ -340,7 +340,7 @@ create index idx_alerts_geom on alert_subscriptions using gist (geom);
 -- Web Push delivery targets (one browser subscription per device)
 create table push_subscriptions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade on update cascade,
   endpoint text not null unique,
   p256dh text not null,
   auth_key text not null,
@@ -353,7 +353,7 @@ create table news_items (
   source_url text unique not null,
   title text,
   published_at timestamptz,
-  region_guess uuid references regions(id),
+  region_guess uuid references regions(id) on delete set null on update cascade,
   ai_confidence numeric(3,2),
   flagged boolean default false,
   reviewed boolean default false,
@@ -381,6 +381,38 @@ Full policy SQL lives in `packages/db/supabase/migrations/`. RLS is **on** for e
 - Every "latest record per entity" query: composite index `(entity_id, timestamp desc)`.
 - Every hot read path for the UI: served from a materialized view or covering index, never a live `ST_DWithin` join against raw tables on the request path.
 - Statement timeout: `5s` enforced at the Supabase connection role level to prevent runaway spatial queries from starving the pool.
+
+### 4.3 Foreign Key Action Policy
+
+Every foreign key above declares its `on delete`/`on update` behavior
+explicitly — never left to the Postgres default (`no action`), so a
+`delete`/`update` against a parent row cannot fail with an opaque
+constraint-violation error at runtime. `on insert` has no separate action
+to declare: a foreign key is a constraint checked at `insert`/`update`
+time — the referenced row must already exist, full stop — which is what
+makes referential integrity enforcement automatic rather than
+application-level.
+
+| Child → Parent | `on delete` | `on update` | Why |
+|---|---|---|---|
+| `weather_observations.region_id → regions(id)` | `cascade` | `cascade` | Weather history has no meaning once its region is gone; append-only data, no orphan-preservation need |
+| `dengue_cases.region_id → regions(id)` | `cascade` | `cascade` | Same — case history is meaningless detached from a region |
+| `risk_predictions.region_id → regions(id)` | `cascade` | `cascade` | Predictions are derived from a region; deleting the region invalidates them |
+| `breeding_reports.reporter_id → auth.users(id)` | `set null` | `cascade` | Column is nullable (anonymous reports, ADR-005) — a deleted account's reports stay for the moderation record, just anonymized, rather than vanishing |
+| `breeding_reports.verified_by → auth.users(id)` | `set null` | `cascade` | A verified report must survive the verifying moderator's account being removed; the audit trail loses only the attribution, not the report |
+| `blood_inventory.hospital_id → hospitals(id)` | `cascade` | `cascade` | Inventory rows have no independent existence outside their hospital |
+| `blood_inventory.updated_by → auth.users(id)` | `set null` | `cascade` | Inventory data (ADR-010 Realtime feed) must not disappear because a staff account was removed |
+| `verified_hospital_staff.user_id → auth.users(id)` | `cascade` | `cascade` | A revoked/deleted account should not retain a staff-verification row |
+| `verified_hospital_staff.hospital_id → hospitals(id)` | `cascade` | `cascade` | Staff verification is meaningless once the hospital no longer exists |
+| `alert_subscriptions.user_id → auth.users(id)` | `cascade` | `cascade` | A deleted account's geofences should not keep matching and evaluating |
+| `push_subscriptions.user_id → auth.users(id)` | `cascade` | `cascade` | Same — no point delivering push to a subscription owned by a deleted account |
+| `news_items.region_guess → regions(id)` | `set null` | `cascade` | Column is nullable and advisory (AI-inferred, §5.4) — losing the region guess must not delete ingested news content |
+
+`on update cascade` is applied uniformly even though every referenced key
+here is a `uuid` primary key that the application never mutates in
+practice — it costs nothing at runtime and removes a class of
+"why did this update fail" surprises if a key value is ever legitimately
+reassigned (e.g. a manual data-repair `update`).
 
 ---
 
@@ -459,8 +491,10 @@ All routes mounted in `apps/api/src/index.ts`. Every request passes through `mid
 
 | Method & Path | Auth | Middleware Chain | Rate Limit | Purpose |
 |---|---|---|---|---|
-| `GET /api/risk-map?bbox=` | public | cors, headers | 60/min/IP | Reads `region_risk_summary`, `Cache-Control: s-maxage=300, stale-while-revalidate=600` |
-| `GET /api/risk/:regionId` | public | cors, headers | 60/min/IP | Region drill-down incl. `top_factors` |
+| `GET /api/weather/latest?regionCode=` | public | cors, headers | 60/min/IP | Reads `region_latest_weather`, `Cache-Control: s-maxage=900, stale-while-revalidate=1800` |
+| `GET /api/weather/history?regionCode=&days=` | public | cors, headers | 60/min/IP | Reads `region_weather_observations`, same cache header as `latest` |
+| `GET /api/risk-map?bbox=&horizon=` | public | cors, headers | 60/min/IP | Reads `region_risk_geojson` (the read view over `region_risk_summary`), `Cache-Control: s-maxage=300, stale-while-revalidate=600` |
+| `GET /api/risk/:regionId?horizon=` | public | cors, headers | 60/min/IP | Region drill-down incl. `top_factors`; `predictions` always carries both horizons, `?horizon=` is validated but does not filter this route |
 | `GET /api/resources/hospitals?bbox=` | public | cors, headers | 60/min/IP | PostGIS bbox query (initial paint; live updates via Realtime, ADR-010) |
 | `GET /api/resources/blood?bloodGroup=&lat=&lng=&radius=` | public | cors, headers | 60/min/IP | `ST_DWithin` nearest-hospital + stock query |
 | `PATCH /api/resources/blood/:id` | verified hospital-staff/volunteer | cors, headers, auth (JWT), rate-limit | 10/min/user | Stock update, RLS-enforced, double-checked in route handler |
@@ -469,6 +503,24 @@ All routes mounted in `apps/api/src/index.ts`. Every request passes through `mid
 | `POST /api/symptom-check` | public | cors, headers, rate-limit, quota-guard | 10/min/IP, 50/day/IP | Gemini structuring → deterministic rule engine, no PII persisted |
 | `POST /api/alerts/subscribe` | authenticated | cors, headers, auth (JWT), rate-limit | 5/min/user | Upsert `alert_subscriptions` |
 | `POST /api/alerts/push-subscription` | authenticated | cors, headers, auth (JWT) | 5/min/user | Registers browser Push subscription (`push_subscriptions`) |
+
+**§6 amendment — weather routes.** `GET /api/weather/latest` and
+`GET /api/weather/history` were added above because this section predates
+§13's requirement for a weather dashboard and originally listed no weather
+endpoint at all; the dashboard cannot ship without one. No `GET /api/regions`
+route was added alongside them: the region selector derives its options
+from the `latest` payload, which already carries `regionCode` and
+`regionName`, so a separate regions endpoint would be a second source of
+truth for the same list.
+
+**Open item — rate-limit column disagreement (flagged, not resolved).**
+Every public `GET` row above lists `60/min/IP` in the Rate Limit column
+while its Middleware Chain column reads only `cors, headers` — no
+`rate-limit` entry. The two columns disagree, and this predates the
+weather rows; the weather and risk-map/risk-detail routes implement the
+middleware chain as written (no Upstash call on these read paths) rather
+than resolve the discrepancy here. It is left for a decision during the
+security-hardening slice (§13, slice 9).
 
 **No `/api/jobs/*` endpoints exist.** Background jobs (weather ingest, batch predict, news scan) run as GitHub Actions workflows connecting **directly** to Supabase with the service-role key stored as a GH secret — never exposed as an invokable HTTP endpoint, removing an entire class of forged-trigger attack (ADR-007).
 
@@ -615,15 +667,17 @@ Every feature PR must include all three passes, documented inline in the PR desc
 2. Submit a valid report with geolocation granted → appears in "My Reports" as pending, moderator sees it in queue.
 3. Submit 10 reports in 30 seconds from the same IP → 6th onward rejected with generic "Too many requests" toast; submit `<script>alert(1)</script>` as description → stored as inert text, never executed; call `POST https://<api-domain>/api/reports/breeding-site` directly with `lat: 999` → rejected 400 by zod schema before hitting the DB; call it from an unregistered `Origin` header → rejected by CORS before it reaches the handler.
 
-Use `playwright` for automated regression tests — `apps/web` end-to-end (a real browser against the production preview), `apps/api` (real HTTP requests against a live `wrangler dev`/Miniflare instance), and `packages/*` (pure logic, no browser or server, `test`/`expect` only) — but **manual testing is mandatory** for every PR touching a write path or LLM-touching feature. The three-pass checklist must be filled out in the PR description and signed off by the reviewer.
+Automated coverage is **two runners split on one line — does the test drive a running process from the outside?** **Vitest** owns unit and integration: `packages/*` pure logic (`node` environment), `apps/api` routes and middleware executed *inside workerd* via `@cloudflare/vitest-pool-workers`, and `apps/web` hooks and pure modules (`jsdom`, scoped — no full-page component trees, no duplication of end-to-end assertions). **Playwright** owns end-to-end: `apps/web` in a real browser against the production preview, and a small `apps/api` black-box contract suite run against a live server on both runtimes (`wrangler dev` and the Node image). `.test.ts` is Vitest, `.spec.ts` is Playwright, without exception. Coverage thresholds (`@vitest/coverage-v8`) are a merge gate, and no security-relevant branch — CORS, rate limit, auth, validation, error boundary — may be left uncovered regardless of the aggregate number. Full architecture, the per-case routing table, and the thresholds: `docs/standards/testing.md`.
+
+**Manual testing is mandatory** for every PR touching a write path or LLM-touching feature, and neither automated layer substitutes for it. The three-pass checklist must be filled out in the PR description and signed off by the reviewer.
 
 ---
 
 ## 11. CI/CD Pipeline
 
-`turbo.json` pipeline: `lint → typecheck → test (playwright, packages + apps/api logic + apps/web end-to-end) → build (apps/web, apps/api)`. **Playwright is the single automated test framework for the whole repo** — no Vitest anywhere. `packages/*` specs are pure logic (`test`/`expect`, no server, no browser). `apps/api` specs run as real HTTP requests via Playwright's `request` fixture against a `wrangler dev` instance its own config starts (`webServer`) — independent of a prior `build` step, since `wrangler dev` bundles on the fly. `apps/web` specs run against the **production preview** (`pnpm preview`), which does need `dist/` built first — so in CI, `apps/web`'s end-to-end stage specifically runs after `build`; `apps/api`'s and `packages/*`'s test stages have no such dependency. **One gated pipeline, two branches.** `pipeline.yml` is the only entrypoint for pull requests and for pushes to `main` and `dev`; every other workflow except the three `cron-*` jobs is a reusable workflow it calls (`on: workflow_call`). It composes them into a single run graph with real `needs:` edges — **gates → build image → scan image → deploy** — because `needs:` only sequences jobs within one workflow, and four workflows each carrying their own `push: [main]` trigger is four races, not a pipeline. `ci.yml` runs the matrix above as concurrent jobs (`lint`, `typecheck`, `static-analysis`, `test`, `build` → `e2e-web`) sharing a warm pnpm store; `codeql.yml` runs SAST alongside it and gates the same stage. `deploy-web.yml` builds `apps/web` (Vite) and publishes the static output to Cloudflare Pages; `deploy-api.yml` runs `wrangler deploy` for `apps/api`. `main` deploys to production, `dev` to the `avash-api-preview` Worker environment and the `dev` Pages branch, and a pull request gets a Pages preview only. Branch → channel is resolved once in `pipeline.yml`'s `context` job and passed down as workflow inputs; no downstream job re-derives it from `github.ref`.
+`turbo.json` pipeline: `lint → typecheck → test (vitest — packages/*, apps/api in workerd, apps/web hooks) → build (apps/web, apps/api) → e2e (playwright — apps/web browser suite, apps/api dual-runtime contract suite)`. **Two runners, one boundary:** Vitest for anything in-process, Playwright for anything that drives a running process from the outside (§10, `docs/standards/testing.md`). The Vitest stage depends on nothing but `install` — `@cloudflare/vitest-pool-workers` starts its own workerd — so it runs concurrently with `lint` and `typecheck`. `apps/web`'s Playwright suite runs against the **production preview** (`pnpm preview`) and therefore needs `dist/` built first, so it is the one test stage sequenced after `build`; `apps/api`'s contract suite needs only a started server. **One gated pipeline, two branches.** `pipeline.yml` is the only entrypoint for pull requests and for pushes to `main` and `dev`; every other workflow except the three `cron-*` jobs is a reusable workflow it calls (`on: workflow_call`). It composes them into a single run graph with real `needs:` edges — **gates → build image → scan image → deploy** — because `needs:` only sequences jobs within one workflow, and four workflows each carrying their own `push: [main]` trigger is four races, not a pipeline. `ci.yml` runs the matrix above as concurrent jobs (`lint`, `typecheck`, `static-analysis`, `test`, `build` → `e2e-web`) sharing a warm pnpm store; `codeql.yml` runs SAST alongside it and gates the same stage. `deploy-web.yml` builds `apps/web` (Vite) and publishes the static output to Cloudflare Pages; `deploy-api.yml` runs `wrangler deploy` for `apps/api`. `main` deploys to production, `dev` to the `avash-api-preview` Worker environment and the `dev` Pages branch, and a pull request gets a Pages preview only. Branch → channel is resolved once in `pipeline.yml`'s `context` job and passed down as workflow inputs; no downstream job re-derives it from `github.ref`.
 
-CI must fail the build on: any ESLint error/warning, any TypeScript error, any unused export flagged by `ts-prune`, any CodeQL high/critical finding, any Trivy high/critical finding in the ML image, model checksum mismatch (for ML artifact PRs), and any client bundle referencing a non-`VITE_PUBLIC_`-prefixed env var.
+CI must fail the build on: any ESLint error/warning, any TypeScript error, any unused export flagged by `ts-prune`, any CodeQL high/critical finding, any Trivy high/critical finding in the ML image, model checksum mismatch (for ML artifact PRs), any client bundle referencing a non-`VITE_PUBLIC_`-prefixed env var, any failing Vitest or Playwright spec, any Vitest coverage threshold miss (§10), and any agent-governance drift flagged by `scripts/check-agent-sync.mjs` (`docs/standards/agent-compliance.md`).
 
 **Containers in CI (ADR-011, ADR-012).** Database-touching jobs (migrations, RLS policies, spatial queries) declare `postgis/postgis:15-3.4` as a GitHub Actions `services:` container with a `pg_isready` health check, so schema work is verified against a real PostGIS instance with no hosted-Supabase dependency and no credentials in CI. Every Dockerfile is linted with hadolint and every built image scanned with Trivy (high/critical fails the job).
 
@@ -631,7 +685,7 @@ CI must fail the build on: any ESLint error/warning, any TypeScript error, any u
 
 The weekly scheduled run of `pipeline.yml` publishes a `cve-report` artifact — Trivy output for all three images in one Markdown file, under a stable artifact name overwritten each week, so the current CVE state is always one download rather than a pile of per-run artifacts.
 
-**The `apps/api` dual-runtime gate.** Because the API image runs on Node while production runs on workerd, `apps/api`'s Playwright suite runs **twice** in CI — once against `wrangler dev` and once against the running container — with the same specs and the same expectations. This is the parity obligation ADR-012 accepts in exchange for shipping the image; removing it means dropping the image, not quietly running one runtime.
+**The `apps/api` dual-runtime gate.** Because the API image runs on Node while production runs on workerd, `apps/api`'s Playwright **contract** suite (`apps/api/e2e/`) runs **twice** in CI — once against `wrangler dev` and once against the running container — with the same specs and the same expectations. It is deliberately a thin boundary suite (health, CORS, error shape, auth rejection, one representative write path per route family); the exhaustive route and middleware coverage lives in the workerd Vitest project, where it runs faster and mocks cleanly. This dual run is the parity obligation ADR-012 accepts in exchange for shipping the image; removing it means dropping the image, not quietly running one runtime.
 
 ---
 
@@ -711,6 +765,16 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 | `API_IMAGE_BASE` | `node:20.17.0-alpine3.20` | `apps/api/Dockerfile` (both stages) | build + runtime base for the API image; Node 20 matches the Worker's `nodejs_compat` baseline |
 | `APP_CONTAINER_PORTS` | web 8080, api 8787 (in-container) | `apps/web/docker/default.conf.template`, `apps/api/server/node-server.ts`, `compose.yaml` | fixed in-container ports; host ports are overridable via `WEB_PORT`/`API_PORT` |
 | `CONTAINER_REGISTRY` | `ghcr.io/<owner>/avash-web`, `ghcr.io/<owner>/avash-api` | `.github/workflows/build-images.yml` | published image names; tagged `sha-<short>`, plus `latest` on `main` |
+| `WEATHER_CACHE_TTL_S` | `s-maxage=900, swr=1800` | `apps/api/src/routes/weather.ts` | edge cache for weather reads; 15 min against a 3 h ingest cadence never serves a value the source could have refreshed |
+| `WEATHER_HISTORY_WINDOW_DAYS` | 14 | `apps/api/src/routes/weather.ts` | dashboard history window; matches the 14-day rolling features in §5.1 so the chart shows what the model will consume |
+| `WEATHER_INGEST_REQUEST_SPACING_MS` | 1100 | `scripts/jobs/weather-ingest.ts` | paces OpenWeatherMap calls under the free tier's 60/min ceiling |
+| `WEATHER_INGEST_MAX_RETRIES` | 3 | `scripts/jobs/weather-ingest.ts` | per-region retry budget on 429/5xx before that region is skipped |
+| `BBOX_MAX_SPAN_DEG` | 10 | `packages/geo/bbox.ts` | rejects an absurd viewport before it becomes a full-table scan |
+| `MAP_GEOMETRY_SIMPLIFY_TOLERANCE_DEG` | 0.001 | `packages/db/supabase/migrations/20260215000009_api_read_views.sql` | polygon simplification in the map read view; ~100 m at this latitude, invisible at the zoom levels the map serves |
+| `RISK_MAP_DEFAULT_HORIZON_WEEKS` | 2 | `packages/types/ml.ts` | horizon the map opens on when `?horizon=` is absent |
+| `STUB_MODEL_VERSION` | `stub-0.0.0` | `packages/types/ml.ts` | sentinel marking seeded placeholder predictions; the real pipeline writes a semver and this value disappears |
+| `MAP_DEFAULT_CENTER` | `[23.78, 90.40]` | `apps/web/src/features/map/tileLayer.ts` | initial map center (Dhaka) |
+| `MAP_DEFAULT_ZOOM` | 7 | `apps/web/src/features/map/tileLayer.ts` | initial zoom — all seeded regions visible in one view |
 
 ---
 
@@ -745,7 +809,11 @@ no server. Anything that must stay secret or server-side belongs in
   detail, critical constants table, security considerations.
 - Write generic, user-friendly error/toast messages. Log full detail
   server-side with a correlation ID instead.
-- Run the test passes (§10) and report the results.
+- Cover every behavior change with **both** automated layers — Vitest for
+  unit/integration (`packages/*`, `apps/api` in workerd, `apps/web` hooks)
+  and Playwright for end-to-end (`apps/web` browser, `apps/api` dual-runtime
+  contract) — **and** the §10 three-pass manual protocol. Run the passes and
+  report the results.
 - Match existing patterns in the file/module you are editing.
 - Keep responses and working context lean — do not re-read files you already
   have full context on; summarize instead of re-pasting large blocks.
@@ -789,8 +857,9 @@ writing code, per §7.2's format. Add it to `docs/security/threat-model.md`.
 - `pnpm install` — install workspace deps
 - `pnpm --filter web dev` — Vite dev server for the React SPA
 - `pnpm --filter api dev` — `wrangler dev` for the Hono Worker API
-- `pnpm lint` / `pnpm typecheck` / `pnpm build` — turbo pipeline across both apps, run before every commit
-- `pnpm --filter @avash/security test` (etc.) — playwright for `packages/*` logic (geo, security, ml-inference wrapper) — the same test framework as `apps/api` and `apps/web`, just without a server or browser fixture
+- `pnpm lint` / `pnpm typecheck` / `pnpm test` / `pnpm build` — turbo pipeline across both apps, run before every commit
+- `pnpm test` / `pnpm test:watch` / `pnpm test:coverage` — Vitest across the workspace: `packages/*` logic, `apps/api` routes in workerd, `apps/web` hooks. `--project=<name>` narrows it
+- `pnpm --filter web test:e2e` / `pnpm --filter api test:e2e` — Playwright end-to-end; `API_TEST_TARGET=container` runs the API contract suite against the Node image instead of `wrangler dev`
 - `pnpm docker:db` — start the local Postgres 15 + PostGIS container (`compose.yaml`, ADR-011); `docker:db:psql`, `docker:db:nuke` for a shell and a full reset
 - `pnpm docker:ml <cmd>` — run a command in the pinned Python 3.11 ML image (`docker:ml:build` first)
 - `pnpm docker:apps:build` / `pnpm docker:apps` — build and run the two app images (ADR-012); web on `:8080`, api on `:8787`

@@ -15,6 +15,12 @@ name: deploy-api
 on:
   workflow_call:
     inputs:
+      environment:
+        description: >-
+          GitHub Environment ("preview" or "production") to draw secrets
+          and variables from (docs/security/github-environments.md).
+        type: string
+        required: true
       wrangler_env:
         description: >-
           wrangler environment from apps/api/wrangler.toml: "production"
@@ -27,6 +33,47 @@ on:
           origin for the post-deploy smoke test.
         type: string
         required: true
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+      SUPABASE_SERVICE_ROLE_KEY:
+        required: false
+      SUPABASE_JWT_SECRET:
+        required: false
+      GEMINI_API_KEY:
+        required: false
+      UPSTASH_REDIS_REST_URL:
+        required: false
+      UPSTASH_REDIS_REST_TOKEN:
+        required: false
+      TURNSTILE_SECRET_KEY:
+        required: false
+  # A direct, standalone trigger for an urgent deploy that doesn't need
+  # the full pipeline.yml graph rebuilt — same job, same environment:
+  # gating below, just reachable without going through the caller.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment to draw secrets and variables from.
+        type: choice
+        options: [preview, production]
+        required: true
+      wrangler_env:
+        description: >-
+          wrangler environment from apps/api/wrangler.toml: "production"
+          (main) or "preview" (dev).
+        type: choice
+        options: [preview, production]
+        required: true
+      smoke_test_origin_var:
+        description: >-
+          Name of the repository variable holding the deployed Worker's
+          origin for the post-deploy smoke test (e.g.
+          PRODUCTION_API_ORIGIN or PREVIEW_API_ORIGIN).
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -35,8 +82,14 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # See the identical comment in deploy-web.yml — set here so a direct
+    # workflow_dispatch run resolves this environment's secrets/vars and
+    # protection rules without a caller job to declare it on.
+    environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-workspace
 

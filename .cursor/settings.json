@@ -1,10 +1,18 @@
 {
   "project": "avash",
   "sourceOfTruth": "docs/PROJECT_PLAN.md",
+  "canonicalRules": "AGENTS.md",
+  "agentsMdSha256": "adbe062b405ca4503677e2dec61cf4bf26975c2e48c5ddbe7903738e7d5a5e7c",
+  "enforcement": "docs/standards/agent-compliance.md",
   "rules": [
-    "R1: apps/web is a static SPA (React 18 + Vite). No SSR, no Next.js patterns.",
-    "R2: Secrets never touch the client. Anything without a VITE_PUBLIC_ prefix must never be referenced under apps/web/src; it belongs in apps/api or a GitHub Actions job script.",
-    "R3: One types source. Every shared interface/DTO/zod schema lives in packages/types — never redefined inline in either app."
+    "CANON: AGENTS.md is the rule set and applies unprompted. If this file disagrees with it, AGENTS.md wins — report the disagreement.",
+    "PROMOTION PATH: feature branches are local only. Local branch -> local dev -> gates green -> push dev -> PR origin/dev -> upstream/dev. Never push a feature branch, never PR into main from anything but dev. Never --no-verify.",
+    "SECRETS: no non-VITE_PUBLIC_ env reference under apps/web/src, ever.",
+    "NO WEAKENED GATES: never weaken a test, assertion, lint rule, coverage threshold, or manual-test description to force a gate green.",
+    "TESTS: does the test drive a running process from the outside? No -> Vitest (*.test.ts). Yes -> Playwright (*.spec.ts). Plus the three-pass manual protocol. None substitutes for another.",
+    "STACK: apps/web is a static SPA (React 18 + Vite), no SSR. apps/api is Hono on Workers and holds everything privileged. Jobs are scheduled Actions, never HTTP endpoints. Shared types live only in packages/types.",
+    "DOCS: change in the same commit as the code. No internal planning label in anything that ships.",
+    "READ BEFORE YOU ACT — load only the row matching the task: test -> docs/standards/testing.md | git or PR -> docs/standards/git-workflow.md | concurrent work -> docs/standards/parallel-work.md | apps/api route -> docs/standards/backend.md | apps/web React -> docs/standards/frontend.md | env var or secret -> docs/security/secrets-matrix.md | workflow -> docs/ci-cd.md | manual deploy -> docs/manual-deploy.md | migration or spatial SQL -> docs/data-schema/schema.md | new constant -> docs/constants-registry.md | Dockerfile -> docs/docker.md | agent config -> docs/standards/agent-compliance.md"
   ],
   "mcpServers": {
     "supabase": {

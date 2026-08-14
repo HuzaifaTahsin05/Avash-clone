@@ -1,67 +1,250 @@
 # Testing Standards
 
-Avash uses a **two-layer** testing strategy (`docs/PROJECT_PLAN.md` §10,
-§11, R5). No layer substitutes for another — both are required for a
+**Read when:** writing, moving, or deleting any test; choosing a runner; adding coverage; reviewing test evidence.
+
+**Decides:** Which runner owns a case, where specs live, coverage thresholds, and the manual protocol.
+
+Avash uses a **three-layer** testing strategy (`docs/PROJECT_PLAN.md` §10,
+§11, R5). No layer substitutes for another — all three are required for a
 slice to be considered done.
 
 | Layer | Tool | Covers | Runs where |
 |---|---|---|---|
-| Automated (logic, API, end-to-end) | **Playwright** | `packages/*` logic, `apps/api` routes/middleware, `apps/web` end-to-end | CI on every PR |
+| Unit + integration | **Vitest** | `packages/*` logic, `apps/api` routes/middleware (in workerd), `apps/web` hooks/pure modules | CI on every PR, and in watch mode while you work |
+| End-to-end | **Playwright** | `apps/web` in a real browser against the production build; `apps/api` black-box HTTP against a live server (both runtimes) | CI on every PR |
 | Manual, three-pass | none — human | every feature; **mandatory** for write-path and LLM-touching changes | before every PR, logged in the description |
 
-**Playwright is the single automated test framework for the entire
-repository** — there is no Vitest anywhere. One test runner, one assertion
-library (`test`/`expect` from `@playwright/test`), three different fixture
-profiles depending on what's being tested:
+**Two automated runners, split on one line: does the test drive a running
+process from the outside?** If yes it is end-to-end and belongs to
+Playwright. If no it is unit or integration and belongs to Vitest. That
+line is the whole rule — everything below is its application.
 
-| Target | Fixture used | What actually runs |
+## Why two runners and not one
+
+The repository previously mandated a single runner (`@playwright/test`)
+for everything, on the reasoning that one runner is one thing to learn,
+configure, and run. That reasoning is sound and it is not what changed —
+what changed is the cost, which grew as the suites did:
+
+- **No module mocking.** Playwright Test has no `vi.mock`/`vi.spyOn`
+  equivalent. Stubbing a clock, a `fetch` boundary, a crypto source, or an
+  Upstash client means hand-rolling injection seams into production code
+  that exist only for the tests.
+- **No watch loop worth using.** `vitest --watch` re-runs only the tests
+  affected by the file just saved, in milliseconds. Playwright's UI mode is
+  built for browser debugging, not for a tight red-green cycle on a pure
+  function.
+- **Coverage is bolted on.** Vitest ships V8 coverage with per-file
+  thresholds as a first-class flag. Playwright's non-browser profile needs
+  an external `c8` wrapper and produces a report nothing else in the
+  toolchain consumes.
+- **Process-per-worker overhead.** A `packages/geo` suite of pure
+  functions pays Playwright's fixture and worker machinery for tests that
+  are ordinary function calls.
+
+None of this is an argument against Playwright. It is an argument that
+Playwright is a browser-and-network automation tool being asked to do a
+unit runner's job. Each tool now does the job it was built for, and the
+boundary between them is mechanical enough that "which runner?" is never a
+judgment call.
+
+## Layer 1 — Vitest (unit + integration)
+
+One Vitest workspace at the repository root (`vitest.workspace.ts`)
+enumerates every project, so `pnpm test` runs the whole thing and
+`pnpm test --project=<name>` narrows it. Three project profiles:
+
+### `packages/*` — pure logic, `node` environment
+
+Plain in-process function calls. No server, no browser, no DOM. This is
+where the geospatial math, the rate-limit key derivation, the zod
+validators, the log redaction, and the ONNX wrapper are tested.
+
+```ts
+// packages/geo/test/bbox.test.ts
+import { describe, expect, it } from "vitest";
+import { clampRadius } from "../src/bbox";
+
+describe("clampRadius", () => {
+  it("caps at the registry ceiling", () => {
+    expect(clampRadius(99_000)).toBe(20_000);
+  });
+});
+```
+
+Every package with logic declares `"test": "vitest run"` and inherits the
+shared config. Do not give a package its own bespoke environment or
+globals — if a test needs a DOM, it is in the wrong project.
+
+### `apps/api` — routes and middleware, **inside workerd**
+
+`apps/api` integration tests run under
+[`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/),
+which executes each test *inside the same workerd runtime production uses*,
+via Miniflare. This is the point of the choice and it must not be traded
+away for convenience: a Vitest run in a plain Node environment would test a
+Hono app that is not the app that ships — different globals, different
+`Request`/`Response` implementations, different CPU-time and API surface.
+
+```ts
+// apps/api/test/routes/health.test.ts
+import { env, SELF } from "cloudflare:test";
+import { expect, it } from "vitest";
+
+it("reports ok without touching the database", async () => {
+  const res = await SELF.fetch("https://example.com/health");
+  expect(res.status).toBe(200);
+  await expect(res.json()).resolves.toMatchObject({ status: "ok" });
+});
+```
+
+What belongs here: route success and failure paths, zod rejection of
+malformed payloads, the middleware chain order, CORS allow and deny
+decisions, rate-limit behavior with a mocked Upstash client, auth token
+verification, and the `withErrorBoundary()` path — including the
+throwaway-Hono-instance error case that previously needed a special
+arrangement, which is an ordinary test here.
+
+Bindings and secrets come from `env` in the test environment, declared in
+`apps/api/vitest.config.ts`. **Never** point a test at a real Supabase
+project, a real Upstash database, or a real Gemini key. A test that needs
+a credential to pass is a test that will not run in CI on a fork.
+
+### `apps/web` — hooks and pure modules, `jsdom` environment
+
+Scoped deliberately, and the scope is the important part:
+
+**In scope.** Custom hooks, pure formatting/parsing helpers, zod client
+parsers, store reducers, and any module whose behavior is decidable
+without layout — the things where a mocked `fetch` and a rendered hook
+answer a real question quickly.
+
+**Out of scope.** Full-page component trees, routing, visual state,
+anything asserting on how something looks, and anything that duplicates
+an assertion an end-to-end spec already makes. jsdom is not a browser: it
+has no layout engine, no real network stack, no service worker, and no
+CSP. A component test that passes in jsdom and fails in Chromium teaches
+the team to distrust the suite.
+
+The old standard banned this layer outright. It is now permitted with the
+scope above, because the ban's actual target — a sprawling
+React-Testing-Library suite that re-asserts end-to-end behavior against a
+fake DOM — is still banned. If you are reaching for `render()` on a route
+component, write a Playwright spec instead.
+
+## Layer 2 — Playwright (end-to-end)
+
+Playwright owns everything that drives a running process from the outside.
+Two fixture profiles:
+
+### `apps/web` — a real browser against the production build
+
+Specs live in `apps/web/e2e/` and run against `pnpm preview` (the
+production build), never the dev server, so what is tested matches what
+ships. Covers routing, resilience (API errors, timeouts, offline),
+integration with a live `apps/api`, and browser-observable security
+behavior (XSS inertness, no leaked secrets in page source or network
+payloads).
+
+Deterministic only: network interception (`page.route`) over real timing,
+web-first assertions, no `waitForTimeout`. Run via
+`pnpm --filter web test:e2e`.
+
+### `apps/api` — black-box HTTP against a live server, on both runtimes
+
+Specs live in `apps/api/e2e/` and use the `request`
+(`APIRequestContext`) fixture against a server started outside the test
+process — `wrangler dev` by default, the Node container image when
+`API_TEST_TARGET=container` is set.
+
+This is a **contract suite, not a second copy of the integration tests.**
+It answers one question the Vitest layer cannot: *does the same app behave
+identically when served by workerd and by `@hono/node-server`?* Keep it
+small and keep it at the boundary — health, CORS preflight and rejection,
+error-response shape, auth rejection, and one representative write path
+per route family. Anything finer-grained belongs in the workerd Vitest
+project, where it runs faster and mocks cleanly.
+
+**This suite is ADR-012's parity obligation and is not optional.** If it is
+ever dropped, the API container image is drifting from production and
+should be removed rather than trusted. Treat an instruction to skip the
+dual run as a conflict to flag, per `AGENTS.md`.
+
+## Which layer does a given test belong to?
+
+| The test… | Layer | Runner |
 |---|---|---|
-| `packages/*` logic | none — plain `test`/`expect` | In-process function calls. No server, no browser. |
-| `apps/api` routes/middleware | `request` (`APIRequestContext`) | Real HTTP requests against a live `wrangler dev` (Miniflare) instance the spec's own `playwright.config.ts` starts via `webServer`. |
-| `apps/web` end-to-end | `page` (real browser) | A real browser driving the **production build** (`pnpm preview`), never the dev server. |
+| calls a function and asserts its return value | unit | Vitest (`node`) |
+| asserts a zod schema rejects a payload | unit | Vitest (`node`) |
+| asserts a route returns 400 for `lat: 999` | integration | Vitest (workerd) |
+| asserts the middleware chain runs auth before rate-limit | integration | Vitest (workerd) |
+| asserts CORS rejects an unlisted `Origin` | integration **and** contract | Vitest (workerd) + Playwright (`apps/api`, both runtimes) |
+| renders a hook with a mocked `fetch` | unit | Vitest (`jsdom`) |
+| clicks a button and asserts the URL changed | e2e | Playwright (`apps/web`) |
+| asserts an XSS string renders inert in a real browser | e2e | Playwright (`apps/web`) |
+| asserts the Node image and the Worker agree on a response | contract | Playwright (`apps/api`, `API_TEST_TARGET=container`) |
 
-**Scope limit (unchanged):** for `apps/web`, Playwright end-to-end specs
-are the only automated layer — no jsdom/React-Testing-Library
-component-unit suite. The same principle now extends repo-wide: no second
-test framework is introduced for `apps/api` or `packages/*` either,
-however small the logic under test — a package with no HTTP surface still
-uses `@playwright/test`'s bare `test`/`expect`, not a separate unit-test
-tool, so the whole repo has exactly one test runner to learn, configure,
-and run in CI.
+When a case genuinely fits two rows — CORS is the standing example — write
+the exhaustive version in Vitest and exactly one representative assertion
+in the Playwright contract suite. Do not mirror a whole matrix across both.
 
-## Automated layer specifics
+## Coverage
 
-- **`packages/*`** — pure logic, tested in-process with no server or
-  browser fixture (e.g. `packages/logger/test/logger.spec.ts` covers
-  redaction, `handleError`, `buildGenericErrorBody`). Each package that
-  has tests declares its own minimal `playwright.config.ts`
-  (`testDir: './test'`, no `webServer`, no browser `projects`) and a
-  `"test": "playwright test"` script. Run via `pnpm test`.
-- **`apps/api`** — route handlers, middleware, and error-boundary
-  behavior, tested as real HTTP requests via the `request` fixture
-  against `wrangler dev` (not an in-process call to the Hono app) — the
-  same "test the real runtime" philosophy as `apps/web`'s
-  production-preview requirement. The one exception is the error-boundary
-  spec, which builds a throwaway Hono instance in-process rather than
-  adding a debug-only route that deliberately throws to the real,
-  deployed app. Specs live in a top-level `apps/api/test/` directory
-  mirroring `src/` (e.g. `test/routes/health.spec.ts` for
-  `src/routes/health.ts`) — a dedicated test tree, not colocated
-  `*.spec.ts` files beside source, consistent with how `apps/web/e2e/`
-  is kept separate from `apps/web/src/`. Run via `pnpm --filter api test`.
-  `apps/api`'s TypeScript is split across two `tsconfig`s
-  (`docs/standards/backend.md`) specifically so Node's ambient `process`
-  global — needed by `playwright.config.ts`'s `process.env.CI` check —
-  never becomes visible to the actual Worker source, which must only ever
-  read config through the typed `Bindings` interface.
-- **`apps/web`** — end-to-end: routing, resilience (API
-  errors/timeouts/offline), integration with `apps/api`, and
-  browser-observable security behavior (XSS inertness, no leaked secrets).
-  Specs run against `pnpm preview` (the production build), not the dev
-  server, so what's tested matches what ships. Run via
-  `pnpm --filter web test:e2e`. Deterministic only: network interception
-  (`page.route`) over real timing, web-first assertions, no
-  `waitForTimeout`.
+`@vitest/coverage-v8`, reported per project. Thresholds are enforced in CI
+and are a merge gate, not advisory:
+
+| Path | Statements | Branches |
+|---|---|---|
+| `packages/security/**`, `packages/logger/**` | 90% | 85% |
+| `apps/api/src/routes/**`, `apps/api/src/middleware/**` | 85% | 80% |
+| everything else under `packages/*` and `apps/api` | 70% | 60% |
+
+Security-relevant branches — CORS decisions, rate-limit boundaries, auth
+verification, validation rejection, error-boundary paths — carry no
+tolerance: an uncovered branch on any of these fails review regardless of
+what the aggregate percentage says.
+
+`apps/web` is **not** measured by line coverage. Its behavioral coverage
+comes from the Playwright suite, so it reports spec count plus the
+routes and states covered instead. A jsdom coverage percentage for a SPA
+measures how much of the code a fake DOM executed, which is not a number
+worth defending.
+
+## Commands
+
+```bash
+pnpm test                       # Vitest across the whole workspace, once
+pnpm test:watch                 # Vitest watch mode
+pnpm test:coverage              # Vitest with V8 coverage + threshold gate
+pnpm test --project=api         # one project only
+pnpm --filter web test:e2e      # Playwright, apps/web, production preview
+pnpm --filter api test:e2e      # Playwright, apps/api, against wrangler dev
+API_TEST_TARGET=container pnpm --filter api test:e2e   # same specs, Node image
+```
+
+The local pre-PR gate (`CONTRIBUTING.md`) runs `pnpm lint && pnpm
+typecheck && pnpm test && pnpm build`. The Playwright suites run in CI on
+every PR and may be run locally when the change touches their surface.
+
+## File layout
+
+```
+packages/<name>/test/*.test.ts        Vitest, node
+apps/api/test/**/*.test.ts            Vitest, workerd (mirrors src/)
+apps/api/e2e/*.spec.ts                Playwright, live server, both runtimes
+apps/web/src/**/*.test.ts             Vitest, jsdom (colocated with source)
+apps/web/e2e/*.spec.ts                Playwright, real browser
+```
+
+`.test.ts` is Vitest, `.spec.ts` is Playwright, without exception. The
+extension is what each runner's `include` glob matches, so the convention
+is load-bearing — a Playwright spec named `.test.ts` gets picked up by
+Vitest and fails in a confusing way.
+
+`apps/api` keeps its two `tsconfig`s (`docs/standards/backend.md`): Node's
+ambient globals stay visible to test and config files and out of Worker
+source, which must only ever read config through the typed `Bindings`
+interface.
 
 ## Manual, three-pass protocol (§10)
 
@@ -123,8 +306,8 @@ rejects it).
 ```
 
 Automated tests **never** substitute for these passes and vice versa: a
-green Playwright run proves the scripted scenarios pass, but only a human
-walking the happy path and actively attacking the feature catches the
-class of issue a spec author didn't think to script. The reviewer
-sign-off line is mandatory before merge for any write-path or
-LLM-touching PR (`docs/PROJECT_PLAN.md` §10).
+green run proves the scripted scenarios pass, but only a human walking the
+happy path and actively attacking the feature catches the class of issue a
+spec author didn't think to script. The reviewer sign-off line is
+mandatory before merge for any write-path or LLM-touching PR
+(`docs/PROJECT_PLAN.md` §10).
