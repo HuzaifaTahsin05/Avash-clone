@@ -36,17 +36,26 @@ seeded stub, not a trained model's output — and the page says so visibly.
   - `GET /api/risk/:regionId?horizon=` returns `riskDetailResponseSchema`
     — `{ regionId, regionCode, regionName, predictions: [],
     latestWeather (nullable), requestId }` for a single region's
-    drill-down panel. A malformed UUID path param is a generic `400`
-    before any query; a well-formed UUID with no matching region is a
-    generic `404`. `latestWeather` reuses
-    `weatherObservationDtoSchema`, tying the drill-down panel back to the
-    same weather data shown on `/weather`.
+    drill-down panel. `predictions` always carries **both** horizons
+    (2-week and 4-week) regardless of `?horizon=` — the drilldown panel
+    shows both at once, unlike the map, which shows one horizon at a
+    time. `?horizon=` is still validated the same way as on `/api/risk-map`
+    (anything other than `2`/`4` is a generic `400`) purely for input
+    consistency across the two routes; it does not filter this response.
+    A malformed UUID path param is a generic `400` before any query; a
+    well-formed UUID with no matching region is a generic `404`.
+    `latestWeather` reuses `weatherObservationDtoSchema`, tying the
+    drill-down panel back to the same weather data shown on `/weather`.
 - `apps/web`'s `/risk` page (`apps/web/src/pages/RiskMap.tsx`, lazy-loaded
   so the Leaflet chunk is not in the main bundle, §8) renders the map with
   Leaflet directly — **no `react-leaflet`** — over an OpenStreetMap raster
   basemap (ADR-013, no map credential required). Each region's polygon is
-  shaded by `riskLevel` (`low`/`moderate`/`high`/`severe`, `RISK_LEVEL_BANDS`
-  in `packages/types/ml.ts`), a legend lists all four bands, and a horizon
+  shaded by `riskLevel` (`low`/`moderate`/`high`/`severe` — the
+  `RISK_LEVEL_BANDS` thresholds from §14 are the SQL generated column on
+  `risk_predictions`; `apps/web/src/features/risk/riskLevelBands.ts`
+  carries the presentation for each band, a fill color plus a
+  border-weight/dash-density signal so the encoding isn't color-only), a
+  legend lists all four bands, and a horizon
   toggle (2 weeks / 4 weeks) refetches `/api/risk-map` with the new
   `?horizon=`. Clicking a region opens a detail panel backed by
   `/api/risk/:regionId`. The map opens centered at `MAP_DEFAULT_CENTER`
@@ -57,11 +66,15 @@ seeded stub, not a trained model's output — and the page says so visibly.
   (`'stub-0.0.0'`, `packages/types/ml.ts`) — the sentinel the seed data
   writes and the real training pipeline's output will not carry once it
   lands (`docs/PROJECT_PLAN.md` §13, slice 3). The page renders a visible
-  provenance banner ("predictions shown are placeholder / stubbed") for
-  as long as `isStub` is true on the data it received, not as a
-  permanent fixture.
+  provenance banner ("predictions shown are placeholder / stubbed")
+  unconditionally right now — the banner is marked in-code as a removal
+  point for the slice that ships real predictions (`RiskMap.tsx`'s own
+  comment names it), rather than being driven by `isStub` at render time;
+  `isStub` is exposed on the wire for the drilldown panel and for any
+  future per-region provenance UI, not consumed by the banner itself.
 - **Tile allow-list — two files, one change.** The OSM tile host
-  (`MAP_TILE_URL_TEMPLATE`, `packages/types` / §14) is allow-listed under
+  (`MAP_TILE_URL_TEMPLATE`, `apps/web/src/features/map/tileLayer.ts`,
+  §14) is allow-listed under
   CSP `img-src` (not `connect-src` — Leaflet's raster `TileLayer` loads
   tiles as `<img>` elements) in **two** files that must be edited
   together or the two runtimes' headers diverge (ADR-012):

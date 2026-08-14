@@ -37,6 +37,7 @@
     "@supabase/supabase-js": "^2.112.3"
   },
   "devDependencies": {
+    "@avash/types": "workspace:*",
     "@types/node": "^26.1.2",
     "@types/pg": "^8.21.0",
     "@vitest/coverage-istanbul": "^3.2.4",

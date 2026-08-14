@@ -21,6 +21,22 @@ const RISK_MAP_CACHE_TTL_S = 'public, max-age=0, s-maxage=300, stale-while-reval
 const regionIdParamSchema = z.string().uuid();
 const topFactorsArraySchema = z.array(riskFactorSchema);
 
+/**
+ * `generated_at` columns are nullable (`risk_predictions.generated_at`
+ * has no `not null`), but `riskMapFeaturePropertiesSchema.generatedAt` is
+ * a required string — `String(null)` would otherwise yield the literal
+ * `"null"`, which passes that schema and then lexically outranks a real
+ * ISO timestamp in the newest-generatedAt reduction below, silently
+ * poisoning the collection's top-level `generatedAt`. The epoch sentinel
+ * satisfies the required-string contract without ever winning that
+ * comparison.
+ */
+const UNKNOWN_GENERATED_AT = new Date(0).toISOString();
+
+function toIsoString(value: unknown): string {
+  return value === null || value === undefined ? UNKNOWN_GENERATED_AT : String(value);
+}
+
 function parseHorizon(raw: string | undefined): { ok: true; horizonWeeks: 2 | 4 } | { ok: false } {
   if (raw === undefined) {
     return { ok: true, horizonWeeks: RISK_MAP_DEFAULT_HORIZON_WEEKS };
@@ -93,7 +109,7 @@ export const riskMap = new Hono<AppEnv>().get('/', async (c) => {
         riskScore: toNumberOrNull(row.risk_score) ?? 0,
         riskLevel: row.risk_level,
         horizonWeeks: Number(row.horizon_weeks),
-        generatedAt: String(row.generated_at),
+        generatedAt: toIsoString(row.generated_at),
       },
     }));
 
@@ -208,7 +224,7 @@ export const riskDetail = new Hono<AppEnv>().get('/:regionId', async (c) => {
         modelVersion,
         isStub: modelVersion === STUB_MODEL_VERSION,
         topFactors: parseTopFactors(row.top_factors),
-        generatedAt: String(row.generated_at),
+        generatedAt: toIsoString(row.generated_at),
       };
     });
 

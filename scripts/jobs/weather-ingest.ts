@@ -8,11 +8,16 @@
  * (`@supabase/supabase-js` + the service-role key), not a raw Postgres
  * connection — unlike scripts/seed-db.ts, which is local-only `pg`.
  *
- * One region failing must never abandon the rest (§ task brief): each
- * region is fetched/inserted independently and failures are counted, not
- * thrown. Exit code and the final summary line reflect the aggregate:
- *   - exit 0 when at least one region succeeded, or nothing failed outright
- *   - exit 1 only when every region failed
+ * One region failing must never abandon the rest: each region is
+ * fetched/inserted independently and outcomes are counted, not thrown.
+ * Exit code and the final summary line reflect the aggregate:
+ *   - exit 0 when at least one region was freshly ingested or already had
+ *     this hour's observation (real progress happened, this run or a
+ *     prior one)
+ *   - exit 1 when every region was skipped or failed — including the
+ *     case where every region hits the same non-retryable upstream
+ *     status (e.g. a revoked OpenWeatherMap key returning 401 for all of
+ *     them), which must not look like a healthy no-op run
  *
  * Never logs the OpenWeatherMap request URL (docs/security/secrets-matrix.md)
  * — the API key rides in the query string. Region codes are logged instead.
@@ -21,6 +26,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
+import type { RegionIngestTargetRow } from '@avash/types';
 import { backoffDelayMs } from './lib/backoff.ts';
 import { fetchWeatherWithRetry } from './lib/fetchWithRetry.ts';
 import { hourBucketEnd, hourBucketStart } from './lib/hourBucket.ts';
@@ -35,14 +41,6 @@ if (existsSync(rootEnvFile)) {
 // docs/constants-registry.md — both registered against this file.
 const WEATHER_INGEST_REQUEST_SPACING_MS = 1100;
 const WEATHER_INGEST_MAX_RETRIES = 3;
-
-interface IngestTarget {
-  region_id: string;
-  code: string;
-  name: string;
-  lat: number;
-  lon: number;
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -84,7 +82,7 @@ async function main() {
     return;
   }
 
-  const regions = (targets ?? []) as IngestTarget[];
+  const regions = (targets ?? []) as RegionIngestTargetRow[];
   if (regions.length === 0) {
     console.log('weather-ingest: 0 regions in region_ingest_targets — nothing to do.');
     process.exitCode = 0;
@@ -94,6 +92,14 @@ async function main() {
   let succeeded = 0;
   let skipped = 0;
   let failed = 0;
+  // Distinct from `skipped` (an upstream non-retryable status, e.g. a
+  // revoked OpenWeatherMap key returning 401 on every region) — this is
+  // the healthy idempotent no-op when a region already has an
+  // observation for the current hour bucket. Conflating the two under
+  // one counter let a fully-broken run (every region 401ing) exit 0
+  // exactly like a fully-healthy rerun (every region already ingested),
+  // so the cron stayed green while ingesting nothing.
+  let alreadyPresent = 0;
 
   for (let i = 0; i < regions.length; i++) {
     const region = regions[i];
@@ -145,7 +151,7 @@ async function main() {
 
     if ((existing?.length ?? 0) > 0) {
       console.log(`weather-ingest: [${region.code}] already has an observation this hour, skipping.`);
-      skipped++;
+      alreadyPresent++;
       continue;
     }
 
@@ -161,9 +167,16 @@ async function main() {
   }
 
   const total = regions.length;
-  console.log(`ingested ${succeeded}/${total} regions (skipped: ${skipped}, failed: ${failed})`);
+  console.log(
+    `ingested ${succeeded}/${total} regions (already present: ${alreadyPresent}, skipped: ${skipped}, failed: ${failed})`
+  );
 
-  process.exitCode = succeeded > 0 || failed < total ? 0 : 1;
+  // Zero progress this run — no fresh insert and no confirmed prior
+  // presence — is a failure regardless of whether individual regions
+  // landed in `skipped` or `failed`. A revoked/expired OpenWeatherMap key
+  // makes every region 401 → `skipped`, which must not look identical to
+  // "every region already had this hour's data."
+  process.exitCode = succeeded + alreadyPresent > 0 ? 0 : 1;
 }
 
 main().catch((error) => {

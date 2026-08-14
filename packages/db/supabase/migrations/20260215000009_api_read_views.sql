@@ -8,7 +8,11 @@
 -- security_invoker = true on all four: without it a view runs with the
 -- definer's rights and silently bypasses the RLS policies in
 -- 20260201000007_rls_policies.sql. The service-role key apps/api uses
--- bypasses RLS anyway — this is defense in depth for any future anon read.
+-- bypasses RLS anyway — this is defense in depth for any future anon
+-- read. It buys nothing for region_risk_geojson specifically: that view
+-- sits on region_risk_summary, a MATERIALIZED view, and Postgres does
+-- not apply RLS to materialized views regardless of security_invoker.
+-- The explicit revoke below is what actually closes that gap.
 
 -- Weather rows with their region's code and name attached, so apps/api
 -- never needs an embedded resource or a second round trip.
@@ -56,6 +60,26 @@ create or replace view region_risk_geojson
          st_ymax(s.geom) as max_lat
   from region_risk_summary s;
 
--- No grants. apps/api reads these with the service-role key; nothing is
--- exposed to anon or authenticated until a slice actually needs it, which
--- keeps the default deny.
+-- apps/api reads these with the service-role key, which bypasses grants
+-- entirely, so none of the four needed an explicit grant to work. But
+-- Supabase projects ship `alter default privileges in schema public
+-- grant all on tables to anon, authenticated` — a newly created view in
+-- `public` is auto-granted to both roles with no `grant` statement of
+-- its own, so the absence of a grant here does NOT mean the default
+-- stays deny. Revoke explicitly rather than relying on that absence.
+--
+-- `anon`/`authenticated` only exist on a Supabase-bootstrapped Postgres
+-- (created by the auth/GoTrue setup); the vanilla postgis/postgis image
+-- compose.yaml runs locally has neither, so the revoke is wrapped to
+-- no-op there instead of failing db:reset — a hosted Supabase project
+-- has both roles by default and the revoke applies for real there.
+do $$
+begin
+  revoke all on region_weather_observations from anon, authenticated;
+  revoke all on region_latest_weather from anon, authenticated;
+  revoke all on region_ingest_targets from anon, authenticated;
+  revoke all on region_risk_geojson from anon, authenticated;
+exception
+  when undefined_object then
+    raise notice 'anon/authenticated role not present (local Postgres without Supabase auth bootstrap) — skipping revoke.';
+end $$;

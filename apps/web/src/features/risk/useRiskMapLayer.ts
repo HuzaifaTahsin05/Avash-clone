@@ -49,7 +49,12 @@ export function useRiskMapLayer(
         onEachFeature: (feature, featureLayer) => {
           const regionId = feature?.properties?.regionId;
           const regionName = feature?.properties?.regionName ?? 'Unknown region';
-          featureLayer.bindTooltip(regionName);
+          // bindTooltip renders a raw string as HTML — regionName crossed
+          // a network boundary (R4), so it's set via textContent on a
+          // plain element rather than passed through as markup.
+          const tooltipEl = document.createElement('span');
+          tooltipEl.textContent = regionName;
+          featureLayer.bindTooltip(tooltipEl);
           featureLayer.on('click', () => {
             if (regionId) {
               onRegionClickRef.current?.(regionId);

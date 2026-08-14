@@ -493,8 +493,8 @@ All routes mounted in `apps/api/src/index.ts`. Every request passes through `mid
 |---|---|---|---|---|
 | `GET /api/weather/latest?regionCode=` | public | cors, headers | 60/min/IP | Reads `region_latest_weather`, `Cache-Control: s-maxage=900, stale-while-revalidate=1800` |
 | `GET /api/weather/history?regionCode=&days=` | public | cors, headers | 60/min/IP | Reads `region_weather_observations`, same cache header as `latest` |
-| `GET /api/risk-map?bbox=` | public | cors, headers | 60/min/IP | Reads `region_risk_summary`, `Cache-Control: s-maxage=300, stale-while-revalidate=600` |
-| `GET /api/risk/:regionId` | public | cors, headers | 60/min/IP | Region drill-down incl. `top_factors` |
+| `GET /api/risk-map?bbox=&horizon=` | public | cors, headers | 60/min/IP | Reads `region_risk_geojson` (the read view over `region_risk_summary`), `Cache-Control: s-maxage=300, stale-while-revalidate=600` |
+| `GET /api/risk/:regionId?horizon=` | public | cors, headers | 60/min/IP | Region drill-down incl. `top_factors`; `predictions` always carries both horizons, `?horizon=` is validated but does not filter this route |
 | `GET /api/resources/hospitals?bbox=` | public | cors, headers | 60/min/IP | PostGIS bbox query (initial paint; live updates via Realtime, ADR-010) |
 | `GET /api/resources/blood?bloodGroup=&lat=&lng=&radius=` | public | cors, headers | 60/min/IP | `ST_DWithin` nearest-hospital + stock query |
 | `PATCH /api/resources/blood/:id` | verified hospital-staff/volunteer | cors, headers, auth (JWT), rate-limit | 10/min/user | Stock update, RLS-enforced, double-checked in route handler |

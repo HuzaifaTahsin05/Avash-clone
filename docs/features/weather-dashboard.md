@@ -39,8 +39,11 @@ sanity-check the model against what actually happened.
   `latest` payload — there is no separate `/api/regions` endpoint; see
   §6's amendment note in `docs/PROJECT_PLAN.md` for why one was not
   added), then fetches `history` for whichever region is selected to
-  render a sparkline of temperature/humidity/precipitation over the
-  window.
+  render a sparkline of mean temperature (`tempMeanC`) over the window —
+  the single hand-rolled inline-SVG sparkline this slice's "minimal
+  frontend" scope calls for, not one per weather field. `history.points`
+  also carries `humidityPct`/`precipitationMm` on the wire for a future
+  slice to chart; today only `tempMeanC` is plotted.
 - Every numeric field on `weatherObservationDtoSchema`
   (`tempMeanC`, `tempMinC`, `tempMaxC`, `humidityPct`, `precipitationMm`)
   is nullable — a region can have a row with partial data (e.g. an

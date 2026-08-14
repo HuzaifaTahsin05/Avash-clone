@@ -11,5 +11,5 @@ export function toNumberOrNull(value: unknown): number | null {
     return null;
   }
   const n = Number(value);
-  return Number.isNaN(n) ? null : n;
+  return Number.isFinite(n) ? n : null;
 }

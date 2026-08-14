@@ -12,6 +12,9 @@ importers:
         specifier: ^2.112.3
         version: 2.112.3
     devDependencies:
+      '@avash/types':
+        specifier: workspace:*
+        version: link:packages/types
       '@types/node':
         specifier: ^26.1.2
         version: 26.2.0
