@@ -200,21 +200,30 @@ anything that grants access, repository variable for anything that's
 already public once `apps/web` ships it. **Repository vs. environment
 scope** is the second choice, and it is mid-migration:
 
-- **Today: repository scope, for everything in the table above.** No
-  workflow declares an `environment:` key yet, and an environment-scoped
-  secret is injected *only* into a job that declares one — so setting a
-  secret at environment scope right now means it is never injected, and the
-  deploy silently no-ops while reporting success. Follow the repository-scope
-  instructions below.
-- **Target: environment scope, split `preview` / `production`.**
-  `secrets: inherit` in `pipeline.yml` currently hands every repository
-  secret to both deploy paths, which means a push to `dev` runs holding the
-  production Cloudflare token and the production service-role key. The
-  full cutover procedure — creating the environments, branch policies,
-  required reviewers, per-environment credentials, the workflow edits, and
-  the verification that must pass before the repository-scoped copies are
-  deleted — is **`docs/security/github-environments.md`**. Do not apply it
-  piecemeal; a half-migrated state deploys nothing while going green.
+- **The `preview` / `production` GitHub Environments, the branch
+  policies, the required reviewer on `production`, and the workflow-level
+  `environment:` wiring all exist already** — `pipeline.yml`'s
+  `deploy-web` / `deploy-api` jobs declare `environment:`, and
+  `secrets: inherit` is gone in favor of an explicit per-secret list. See
+  `docs/security/github-environments.md` § Current status for exactly
+  what's done and what's still outstanding.
+- **What's still outstanding is the credentials themselves.** Nothing has
+  been set at environment scope yet — no second Cloudflare token, no
+  preview Supabase/Upstash/Gemini/Turnstile project. Until an
+  environment's secrets are actually populated (`docs/security/github-environments.md`
+  § Step 4), a deploy targeting it reads an empty token and takes the
+  documented "not configured — skip cleanly" path: the pipeline stays
+  green and deploys nothing, which is correct for a half-migrated
+  credential set. Follow `docs/security/github-environments.md` §§ 4–8 to
+  finish the cutover; do not set the `deploy-web.yml`/`deploy-api.yml`
+  rows above at repository scope instead, since `pipeline.yml` no longer
+  passes repository-scoped copies of those specific secrets down to them.
+  **This split does not touch the cron workflows** — `cron-weather-ingest.yml`,
+  `cron-batch-predict.yml`, and `cron-news-scan.yml` declare no
+  `environment:` and still read `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `GEMINI_API_KEY`, and the `VAPID_*` keys at repository scope, by design —
+  they run on a schedule, not through a deploy gate, and stay on the
+  repository-scope instructions below.
 
 Via the web UI: **Settings → Secrets and variables → Actions**, then
 **New repository secret** (for `secret`-kind rows in the table above) or
@@ -283,13 +292,10 @@ expected, rather than trying to inspect the value directly.
 
 `build-images.yml` builds the published `avash-web` image against
 `vars.PUBLIC_API_BASE_URL`, falling back to `http://localhost:8787` when
-unset. **This repository variable has not been set yet** — no Cloudflare
-Pages project domain exists (the same gap noted in
-`docs/constants-registry.md` for `CORS_ALLOWED_ORIGINS`). Until it is set,
-the image published to `ghcr.io/<owner>/avash-web` is compiled against
-`localhost` and is useful for local verification only, not as a
-deployable artifact. Set it once the real API origin is known, in the same
-change that updates `wrangler.toml`'s `CORS_ALLOWED_ORIGINS` placeholder.
+unset. Until it is set, the image published to `ghcr.io/<owner>/avash-web`
+is compiled against `localhost` and is useful for local verification only,
+not as a deployable artifact. Set it once the real API origin is known, in
+the same change that updates `wrangler.toml`'s `CORS_ALLOWED_ORIGINS` placeholder.
 
 ## Finding and sharing the live deployment link
 

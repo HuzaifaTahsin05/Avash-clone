@@ -57,6 +57,7 @@ jobs:
       pages_branch: ${{ steps.resolve.outputs.pages_branch }}
       wrangler_env: ${{ steps.resolve.outputs.wrangler_env }}
       origin_var: ${{ steps.resolve.outputs.origin_var }}
+      environment: ${{ steps.resolve.outputs.channel }}
     steps:
       - id: resolve
         env:
@@ -155,20 +156,44 @@ jobs:
   deploy-web:
     needs: [context, images, ml-image]
     if: needs.context.outputs.deploy_web == 'true'
+    # Declared on the calling job, not inside deploy-web.yml
+    # (docs/security/github-environments.md § Step 6 Ordering caveat) — an
+    # `environment:` on the *called* workflow's job makes the `secrets:`
+    # mapping below resolve at repository scope, not environment scope.
+    # This is the line that makes production require an approval and
+    # makes `${{ secrets.X }}` below resolve to this environment's copy.
+    environment: ${{ needs.context.outputs.environment }}
     permissions:
       contents: read
       deployments: write
     uses: ./.github/workflows/deploy-web.yml
-    secrets: inherit
+    # Named, not `secrets: inherit` (docs/security/github-environments.md
+    # § Step 6) — an explicit list is an audit trail and makes adding a
+    # secret a reviewable diff instead of a standing grant of everything.
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     with:
+      environment: ${{ needs.context.outputs.environment }}
       pages_branch: ${{ needs.context.outputs.pages_branch }}
 
   deploy-api:
     needs: [context, images, ml-image]
     if: needs.context.outputs.deploy_api == 'true'
+    # See deploy-web's environment: comment above — same ordering caveat.
+    environment: ${{ needs.context.outputs.environment }}
     uses: ./.github/workflows/deploy-api.yml
-    secrets: inherit
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
     with:
+      environment: ${{ needs.context.outputs.environment }}
       wrangler_env: ${{ needs.context.outputs.wrangler_env }}
       smoke_test_origin_var: ${{ needs.context.outputs.origin_var }}
 

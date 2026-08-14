@@ -248,20 +248,20 @@ secrets means one page shows an environment's entire configuration.
 # ---- preview ----
 gh variable set VITE_PUBLIC_API_BASE_URL     --env preview \
   --body "https://avash-api-preview.<subdomain>.workers.dev"
+gh variable set API_ORIGIN                   --env preview \
+  --body "https://avash-api-preview.<subdomain>.workers.dev"
 gh variable set VITE_PUBLIC_SUPABASE_URL     --env preview --body "https://<preview-ref>.supabase.co"
 gh variable set VITE_PUBLIC_SUPABASE_ANON_KEY --env preview --body "<preview-anon-key>"
 gh variable set VITE_PUBLIC_TURNSTILE_SITE_KEY --env preview --body "<preview-site-key>"
 gh variable set VITE_PUBLIC_VAPID_PUBLIC_KEY --env preview --body "<preview-vapid-public>"
-gh variable set API_ORIGIN                   --env preview \
-  --body "https://avash-api-preview.<subdomain>.workers.dev"
 
 # ---- production ----
 gh variable set VITE_PUBLIC_API_BASE_URL     --env production --body "https://<production-api-origin>"
+gh variable set API_ORIGIN                   --env production --body "https://<production-api-origin>"
 gh variable set VITE_PUBLIC_SUPABASE_URL     --env production --body "https://<prod-ref>.supabase.co"
 gh variable set VITE_PUBLIC_SUPABASE_ANON_KEY --env production --body "<prod-anon-key>"
 gh variable set VITE_PUBLIC_TURNSTILE_SITE_KEY --env production --body "<prod-site-key>"
 gh variable set VITE_PUBLIC_VAPID_PUBLIC_KEY --env production --body "<prod-vapid-public>"
-gh variable set API_ORIGIN                   --env production --body "https://<production-api-origin>"
 ```
 
 **One naming change worth making now.** The repository variables
@@ -457,14 +457,3 @@ deploy.
   configured. Note the split in any handover.
 - **`gh secret set` without `--env` writes a repository secret.** A single
   forgotten flag recreates exactly the fallback Step 6c deleted.
-
-## Current status
-
-The environments described here are **not yet configured**, and the
-workflows do not yet declare `environment:` — `pipeline.yml` still passes
-`secrets: inherit` and both deploy workflows read repository-scoped
-secrets. Until the cutover lands, `docs/ci-cd.md` § Setting these in GitHub
-describes what is actually in place. This document is the target and the
-procedure to reach it, in order; nothing in it should be applied
-piecemeal, because a half-migrated state deploys nothing while reporting
-success.

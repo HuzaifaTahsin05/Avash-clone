@@ -31,6 +31,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-workspace
       - name: Lint (zero errors, zero warnings)
         run: pnpm lint
@@ -40,6 +42,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-workspace
       - name: Typecheck
         run: pnpm typecheck
@@ -49,11 +53,22 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-workspace
       - name: Unused exports (ts-prune)
         run: pnpm dlx ts-prune --error
       - name: No internal planning references (CONTRIBUTING.md § Terminology)
         run: node scripts/check-internal-refs.mjs
+      - name: Agent config in sync (docs/standards/agent-compliance.md)
+        run: pnpm agent:sync
+      - name: Promotion path (docs/standards/git-workflow.md § Hard rule)
+        run: node scripts/check-promotion-path.mjs
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
 
   # Vitest — packages/* (node), apps/api routes/middleware (workerd via
   # @cloudflare/vitest-pool-workers), apps/web hooks/pure modules (jsdom).
@@ -65,6 +80,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-workspace
       - name: Test + coverage (Vitest — packages/*, apps/api workerd, apps/web jsdom)
         run: pnpm test:coverage
@@ -83,6 +100,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-workspace
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -108,10 +127,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-workspace
 
       - name: Build
+        # apps/web/src/lib/env.ts throws at module load — not at build time —
+        # if VITE_PUBLIC_API_BASE_URL is unset, which crashes the whole app
+        # before it mounts. This dist is what e2e-web boots as a "production
+        # preview", so an unset var here doesn't fail this job; it fails
+        # every Playwright spec downstream with an unrelated-looking
+        # "element not found". The value matches apps/web/.env.example and
+        # the origin apps/web/e2e/health-integration.spec.ts intercepts —
+        # nothing here ever makes a real network call.
+        env:
+          VITE_PUBLIC_API_BASE_URL: http://localhost:8787
         run: pnpm build
 
       - name: Bundle budget check (FRONTEND_BUNDLE_BUDGET_KB, §14)
@@ -132,6 +163,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-workspace
 
@@ -177,6 +210,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-workspace
 
@@ -239,6 +274,8 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Wait for PostGIS health
         run: |

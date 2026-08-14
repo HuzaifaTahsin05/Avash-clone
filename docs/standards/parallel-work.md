@@ -210,7 +210,7 @@ are gitignored:
   `api-parity`) collide too.
 - **Turbo cache** — local `.turbo` per worktree is fine and correct.
 
-Automate this in `scripts/worktree-new.sh` so it is one command. A manual
+Automate this in `scripts/worktree.sh` so it is one command. A manual
 six-step setup will be done wrong, in a hurry, by whoever is least
 familiar with it.
 

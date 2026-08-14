@@ -81,9 +81,31 @@ scaffold.
   work lands.
 - No secret values of any kind exist anywhere under `apps/web`.
 
-**Manual Test Log:** not yet run as a formal signed-off pass — three
-informal passes were run against `pnpm --filter web preview` during
-development (see the corresponding PR's manual test log); the formal,
-reviewer-signed three-pass log is completed as part of the project's final
-verification sweep (`docs/standards/testing.md`). Last pass test date:
-none.
+**Manual Test Log:** formal three-pass protocol run against
+`pnpm --filter web preview` (`docs/standards/testing.md`).
+
+- **Pass 1 (assume not implemented):** degraded states driven via
+  `apps/web/e2e/health-integration.spec.ts` and `resilience.spec.ts` —
+  offline, API 500, non-JSON body, schema-invalid payload, and a hung
+  request past the client timeout — all render the correct fallback UI.
+- **Pass 2 (assume implemented correctly):** `apps/web/e2e/*.spec.ts` (19
+  specs) run against chromium and firefox, 3 consecutive runs, 38/38
+  green, zero flakes, zero `waitForTimeout`.
+- **Pass 3 (assume full of bugs):** `apps/web/e2e/security.spec.ts`
+  confirms a script-bearing value in a health payload renders as inert
+  text (no dialog, no injected `<script>` element) and that the rendered
+  page never contains a server-secret or internal-URL marker;
+  `apps/web/e2e/accessibility.spec.ts` confirms exactly one `h1`, a
+  labeled status region, and no focus trap.
+- Lighthouse (`pnpm --filter web preview`, headless Chrome, mobile
+  emulation defaults): Performance 99, Accessibility 100, Best Practices
+  96, SEO 82. The two sub-100 categories are pre-existing scaffold gaps
+  outside this pass's scope, not regressions: no `<meta name="description">`
+  yet, `public/robots.txt` is still the 0-byte placeholder tracked since
+  the initial scaffold, and the two logged console errors are the
+  expected `ERR_CONNECTION_REFUSED` from `apps/api` not running during a
+  frontend-only Lighthouse pass (the app already renders its documented
+  error state for that case — see `docs/features/health-endpoint.md`) and
+  a 404 for the not-yet-added `favicon.ico`. None require a fix here.
+
+Last pass test date: 2026-08-14.

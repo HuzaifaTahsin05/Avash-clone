@@ -101,7 +101,7 @@ blocks merge — on:
    any workflow.
 8. Any Vitest coverage threshold miss (`docs/standards/testing.md`
    § Coverage).
-9. Any agent-governance drift — `scripts/check-agent-sync.mjs` flagging a
+9. Any agent-governance drift — `scripts/agent-sync.mjs` flagging a
    per-tool agent config that has fallen out of sync with `AGENTS.md`
    (`docs/standards/agent-compliance.md`).
 10. Any promotion-path violation — a PR opened from a feature branch, or a

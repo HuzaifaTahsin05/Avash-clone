@@ -107,7 +107,7 @@ Every other file carries a short digest and a pointer. Restating a rule in
 five files guarantees five versions of it within a month, and an agent that
 finds two versions will follow whichever it read last.
 
-**The sync gate.** `scripts/check-agent-sync.mjs` runs in CI and fails the
+**The sync gate.** `scripts/agent-sync.mjs` runs in CI and fails the
 build when:
 
 - a pointer file's embedded `AGENTS.md` content hash does not match the
@@ -275,7 +275,7 @@ Two scripts run in `ci.yml`'s `static-analysis` job:
 - a pull request's base ref is `main` and its head ref is not `dev`;
 - the pushed ref is `main` and the commit is not a merge from `dev`.
 
-**`scripts/check-agent-sync.mjs`** — the Layer 1 sync gate described above.
+**`scripts/agent-sync.mjs`** — the Layer 1 sync gate described above.
 
 Alongside them, on the GitHub side:
 
@@ -324,7 +324,7 @@ When adding a tool not in the Layer 1 table:
 1. Create its instruction file with the three required contents listed
    under § What each pointer file must contain.
 2. Add it to the table in this document **and** to the allow-list in
-   `scripts/check-agent-sync.mjs` — an unlisted config file fails the gate
+   `scripts/agent-sync.mjs` — an unlisted config file fails the gate
    by design, so that a config nobody reviewed cannot appear silently.
 3. Map its hook surface to Layer 2. If it has none, say so explicitly in
    the table rather than leaving it blank; a blank reads as unexamined.
@@ -334,10 +334,21 @@ When adding a tool not in the Layer 1 table:
 
 ## Current status
 
-Layer 1's files all exist. The remaining pieces — the `SessionStart` and
-`PreToolUse` hooks in `.claude/settings.json`, the `.githooks/` directory
-and its `core.hooksPath` wiring, `scripts/check-agent-sync.mjs`, and
-`scripts/check-promotion-path.mjs` — are **specified here and not yet
-implemented**. Until they are, compliance rests on Layer 1 alone, which is
-the arrangement this document exists to end. Nothing above should be read
-as describing a control that is currently running.
+All four layers are implemented and verified running:
+
+- **Layer 1** — every pointer file exists, hash-stamped to `AGENTS.md`,
+  and `pnpm agent:sync` passes.
+- **Layer 2** — `.claude/settings.json` wires `SessionStart`
+  (`scripts/hooks/session-start.mjs`), `PreToolUse` on `Bash`
+  (`scripts/hooks/bash-guard.mjs`, denying the table above), and
+  `PostToolUse` on `Edit`/`Write`/`NotebookEdit`
+  (`scripts/hooks/agent-file-edited.mjs`).
+- **Layer 3** — `.githooks/pre-commit`, `.githooks/commit-msg`, and
+  `.githooks/pre-push` all exist; `core.hooksPath` is wired via
+  `package.json`'s `prepare` script.
+- **Layer 4** — `scripts/agent-sync.mjs` and
+  `scripts/check-promotion-path.mjs` both run in `ci.yml`'s
+  `static-analysis` job. Branch protection and the `production`
+  environment's required reviewers are GitHub-side configuration this
+  repository's files cannot set on their own — see the project's
+  handoff notes for the exact steps.

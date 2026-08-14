@@ -96,15 +96,16 @@ Supabase project exists yet.
   a rounding or comparison-operator mistake in the `case when` expression
   would show up as a wrong band, not a crash.
 
-**Manual Test Log:** not yet run as a formal signed-off pass — this is
-implementation-and-automated-verification work; the formal,
-reviewer-signed three-pass log is completed as part of the project's final
-verification sweep (`docs/standards/testing.md`). Automated evidence
-in place instead: every migration applies cleanly from an empty database
-(`pnpm db:reset`), reapplying is a no-op, `pnpm db:seed` run twice inserts
-zero duplicate rows, `refresh materialized view concurrently` succeeds,
-and `packages/db/test/schema.spec.ts` (19 cases: GiST indexes, RLS
-enablement, all 8 `risk_level` boundary bands, 4 check-constraint
-rejections, the MV's unique index and concurrent refresh) passes against
-the local container and skips — explicitly, not silently — when no
-database is reachable. Last pass test date: none.
+**Manual Test Log:** run against `pnpm docker:db` (local PostGIS
+container). `pnpm db:migrate` applied all 8 migrations cleanly, and a
+second run reported "up to date — nothing new to apply" (no
+double-application). `pnpm db:seed` run twice inserted zero duplicate
+rows the second time (idempotency confirmed by row-count comparison, not
+assumed). `packages/db/test/schema.spec.ts` — 19 cases (4 GiST index
+checks, RLS enabled on all 11 product tables, all 8 `risk_level` boundary
+bands, 4 check-constraint rejections, the MV's unique index and a real
+`refresh materialized view concurrently`) — passed in full against the
+live container. The suite's `requireDb()` skip path (silent-pass
+prevention) was verified separately by pointing it at an unreachable host
+and confirming every case reports `skipped`, not `passed`. Last pass test
+date: 2026-08-14.

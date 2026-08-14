@@ -31,7 +31,7 @@
     "docker:apps:logs": "docker compose --profile apps logs -f",
     "docker:apps:down": "docker compose --profile apps down && node scripts/docker-status.mjs",
     "docker:status": "node scripts/docker-status.mjs",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || exit 0"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

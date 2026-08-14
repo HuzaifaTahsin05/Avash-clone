@@ -17,12 +17,23 @@ name: deploy-web
 on:
   workflow_call:
     inputs:
+      environment:
+        description: >-
+          GitHub Environment ("preview" or "production") to draw secrets
+          and variables from (docs/security/github-environments.md).
+        type: string
+        required: true
       pages_branch:
         description: >-
           Cloudflare Pages branch to deploy to. "main" is the production
           deployment; any other value is a preview.
         type: string
         required: true
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
 
 permissions:
   contents: read
@@ -34,6 +45,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-workspace
 

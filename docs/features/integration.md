@@ -168,12 +168,21 @@ Neither app may redeclare the shape inline.
   (gitignored); `wrangler.toml`'s three `[vars]` blocks were not modified,
   so no deployed environment can ever be reached from `localhost`.
 
-**Manual Test Log:** not yet run as a formal signed-off pass. Manual
-verification during development: both dev servers started with `pnpm dev`,
-the page rendered live `{ status: "ok", environment: "development",
-version: "1.0.0" }` from the real `wrangler dev` instance; loading state
-observed under throttled network; error state observed with `apps/api`
-stopped (generic message, no raw error); offline state observed via the
-browser's offline toggle. The formal, reviewer-signed three-pass log is
-completed as part of the project's final verification sweep
-(`docs/standards/testing.md`). Last pass test date: none.
+**Manual Test Log:** formal three-pass protocol run
+(`docs/standards/testing.md`), superseding the earlier informal
+development-time pass.
+
+- **Pass 1 / Pass 2:** covered by `apps/web/e2e/health-integration.spec.ts`
+  and `apps/api/e2e/health.spec.ts` — the full connectivity matrix (success,
+  loading with no layout shift, error, offline, schema-invalid payload)
+  against chromium and firefox, plus `apps/api`'s contract suite against a
+  live `wrangler dev` instance, 3 consecutive flake-free runs.
+- **Pass 3:** direct `curl` against `wrangler dev` — see
+  `docs/features/health-endpoint.md`'s Manual Test Log for the full case
+  list (evil-origin CORS, oversized payload, `/api/jobs/*` probing, path
+  traversal, header injection, `/health/db` with no real credentials) —
+  every case matched documented behavior, no cross-origin credential leak
+  observed, and the frontend never receives more than the parsed
+  `HealthResponse` shape from `apps/web/src/lib/apiClient.ts`.
+
+Last pass test date: 2026-08-14.

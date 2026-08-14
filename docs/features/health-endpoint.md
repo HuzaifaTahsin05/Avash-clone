@@ -134,9 +134,42 @@ returns `200`, `/health/db` returns a well-typed `503`. See
   user-reported failure can always be correlated to a server-side log
   line without exposing internal detail.
 
-**Manual Test Log:** not yet run as a formal signed-off pass. The backend
-scaffold's `curl` evidence (security headers, CORS rejection,
-typed 404) stands in as the informal verification for this slice; the
-formal, reviewer-signed three-pass log is completed as part of the
-project's final verification sweep (`docs/standards/testing.md`). Last
-pass test date: none.
+**Manual Test Log:**
+
+Three-pass protocol against a local `wrangler dev` instance (`docs/standards/testing.md`).
+
+- **Pass 1 (assume not implemented):** `apps/web/e2e/health-integration.spec.ts`
+  and `apps/web/e2e/resilience.spec.ts` drive the UI through every degraded
+  state — API 500, non-JSON body, offline, schema-invalid payload, and a
+  request that never resolves (proving the client-side `AbortController`
+  timeout in `apps/web/src/lib/apiClient.ts` actually fires rather than
+  hanging forever) — before assuming the happy path works.
+- **Pass 2 (assume implemented correctly):** the full Playwright suite
+  (`apps/web/e2e/*.spec.ts`, `apps/api/e2e/health.spec.ts`) runs against
+  chromium and firefox; 3 consecutive runs, 38/38 web specs and 5/5 API
+  specs green, zero flakes, zero `waitForTimeout` usage.
+- **Pass 3 (assume full of bugs — direct `curl` against `wrangler dev`):**
+  - Disallowed origin (`https://evil.example`) GET: `200`, no
+    `Access-Control-Allow-Origin` header.
+  - Disallowed origin OPTIONS preflight: bare `403`.
+  - Allowed origin (`https://avash.pages.dev`) GET: `200` with the matching
+    `Access-Control-Allow-Origin` header.
+  - `POST /health` (method not implemented for this route): `404`, no
+    method-not-allowed detail leaked.
+  - ~2 MB oversized POST body: `404` before any body parsing.
+  - XSS-shaped query string (`?x=<script>...`): not reflected anywhere in
+    the response body.
+  - `/api/jobs/weather-ingest`, `/jobs`: both `404` — confirms no
+    background job is reachable as an HTTP endpoint (R7).
+  - Unknown route (`/definitely-not-a-route`): generic typed
+    `{"error":{"message":"...","requestId":"..."}}` body, no stack trace,
+    no internal path.
+  - CRLF-bearing header (`X-Forwarded-For: 1.1.1.1\r\nX-Injected: yes`):
+    handled harmlessly, no header injection observed.
+  - Path-traversal attempt (`/../../etc/passwd`): `404`.
+  - `GET /health/db` with no real Supabase credentials configured:
+    `503`, generic `{"ready":false,"reason":"database unreachable",...}` —
+    the real cause (missing `SUPABASE_URL`) is never echoed back.
+
+No finding required a code change; every case matched the documented
+behavior above. Last pass test date: 2026-08-14.

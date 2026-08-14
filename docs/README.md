@@ -103,4 +103,4 @@ scope isn't finalized until the slice that builds them begins.
 | File | Description | Status |
 |---|---|---|
 | `testing/manual-test-log.md` | Running master log of all three-pass manual test results, with reviewer sign-off | Planned |
-| `testing/verification-report.md` | Final verification report: what was tested, found, fixed; Vitest coverage table, Playwright suite summary, Lighthouse scores, known limitations | Planned |
+| `testing/verification-report.md` | Final verification report: what was tested, found, fixed; Vitest coverage table, Playwright suite summary, Lighthouse scores, known limitations | Existing |

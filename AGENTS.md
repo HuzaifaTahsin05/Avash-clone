@@ -33,11 +33,15 @@ Jobs = scheduled GitHub Actions → Supabase directly.
    `node scripts/check-internal-refs.mjs`.
 10. **Never `--no-verify`.** It bypasses the hooks that back rule 1.
 11. **Never start parallel or multi-agent work without a written cost
-    estimate and the user's explicit go-ahead.** Fanning out spends real
-    money and buys wall-clock, not savings. Produce the estimate first
-    (`docs/standards/parallel-work.md` § Cost estimate), present it, wait
-    for approval. Spawning agents to "save time" without being asked is
-    the failure this rule exists for.
+    estimate.** Fanning out spends real money and buys wall-clock, not
+    savings. Produce the estimate first (`docs/standards/parallel-work.md`
+    § Cost estimate) and present it. The user granted standing approval
+    for implementation work on a vertical slice (2026-08-14) — that case
+    proceeds on the estimate alone, same turn, no stop-and-wait. Every
+    other case (anything outside slice implementation, or a plan that
+    diverges from the standard Phase 0/1/2 shape) still waits for
+    explicit go-ahead. Spawning agents to "save time" without the
+    estimate ever being shown is the failure this rule exists for.
 
 Rules 1, 3, 9 and 10 are additionally enforced by git hooks and CI. A
 refusal from one is correct — redirect, don't route around it.
