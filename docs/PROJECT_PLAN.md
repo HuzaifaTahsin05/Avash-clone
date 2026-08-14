@@ -745,6 +745,16 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 | `API_IMAGE_BASE` | `node:20.17.0-alpine3.20` | `apps/api/Dockerfile` (both stages) | build + runtime base for the API image; Node 20 matches the Worker's `nodejs_compat` baseline |
 | `APP_CONTAINER_PORTS` | web 8080, api 8787 (in-container) | `apps/web/docker/default.conf.template`, `apps/api/server/node-server.ts`, `compose.yaml` | fixed in-container ports; host ports are overridable via `WEB_PORT`/`API_PORT` |
 | `CONTAINER_REGISTRY` | `ghcr.io/<owner>/avash-web`, `ghcr.io/<owner>/avash-api` | `.github/workflows/build-images.yml` | published image names; tagged `sha-<short>`, plus `latest` on `main` |
+| `WEATHER_CACHE_TTL_S` | `s-maxage=900, swr=1800` | `apps/api/src/routes/weather.ts` | edge cache for weather reads; 15 min against a 3 h ingest cadence never serves a value the source could have refreshed |
+| `WEATHER_HISTORY_WINDOW_DAYS` | 14 | `apps/api/src/routes/weather.ts` | dashboard history window; matches the 14-day rolling features in §5.1 so the chart shows what the model will consume |
+| `WEATHER_INGEST_REQUEST_SPACING_MS` | 1100 | `scripts/jobs/weather-ingest.ts` | paces OpenWeatherMap calls under the free tier's 60/min ceiling |
+| `WEATHER_INGEST_MAX_RETRIES` | 3 | `scripts/jobs/weather-ingest.ts` | per-region retry budget on 429/5xx before that region is skipped |
+| `BBOX_MAX_SPAN_DEG` | 10 | `packages/geo/bbox.ts` | rejects an absurd viewport before it becomes a full-table scan |
+| `MAP_GEOMETRY_SIMPLIFY_TOLERANCE_DEG` | 0.001 | `packages/db/supabase/migrations/20260215000009_api_read_views.sql` | polygon simplification in the map read view; ~100 m at this latitude, invisible at the zoom levels the map serves |
+| `RISK_MAP_DEFAULT_HORIZON_WEEKS` | 2 | `packages/types/ml.ts` | horizon the map opens on when `?horizon=` is absent |
+| `STUB_MODEL_VERSION` | `stub-0.0.0` | `packages/types/ml.ts` | sentinel marking seeded placeholder predictions; the real pipeline writes a semver and this value disappears |
+| `MAP_DEFAULT_CENTER` | `[23.78, 90.40]` | `apps/web/src/features/map/tileLayer.ts` | initial map center (Dhaka) |
+| `MAP_DEFAULT_ZOOM` | 7 | `apps/web/src/features/map/tileLayer.ts` | initial zoom — all seeded regions visible in one view |
 
 ---
 
