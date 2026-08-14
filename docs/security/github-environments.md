@@ -330,30 +330,40 @@ Naming each secret is the point. `secrets: inherit` is a standing grant of
 everything to everyone downstream; an explicit list is an audit trail you
 can read in one screen, and adding a secret to it is a reviewable diff.
 
-> **Ordering caveat.** With `environment:` declared on the *called*
-> workflow's job, the caller's `secrets:` block passes **repository**-scope
-> secrets, which is not what you want. Two workable shapes: either declare
-> `environment:` on the calling job in `pipeline.yml` and keep passing
-> secrets down explicitly, or move the whole deploy job body into
-> `pipeline.yml`. Pick one, write down which, and verify with the dry run in
-> Step 8 rather than assuming — this is the single most common way a
-> per-environment split ends up injecting nothing.
+> **Corrected — `environment:` cannot go on the calling job at all.**
+> An earlier version of this section offered "declare `environment:` on
+> the calling job in `pipeline.yml`" as a workable shape. It is not:
+> GitHub's Actions schema rejects `environment:` on any job that also has
+> `uses:` (a reusable-workflow call) — not a scoping quirk, a hard schema
+> error ("Unexpected value 'uses'/'secrets'/'with'", "Unknown Property
+> environment"). Confirmed with `act -l -W <file>` (`nektos/act`'s bundled
+> schema) and against a real push to `dev`: every run since the commit
+> that added `environment:` to `pipeline.yml`'s `deploy-web`/`deploy-api`
+> jobs failed in under a second with zero jobs created, "Invalid workflow
+> file" — the deploy stage had never actually executed. `git show
+> <commit>:.github/workflows/pipeline.yml | act -l -W -` (or write it to
+> a temp file first; `act` doesn't read `-W -` from stdin) is the fast
+> local check before trusting any change here again.
+>
+> The one schema-valid shape: `environment:` lives **only** on the called
+> workflow's own job (`deploy-web.yml`/`deploy-api.yml`'s
+> `build-and-deploy`/`deploy` job), never on the `pipeline.yml` job that
+> calls it with `uses:`. `pipeline.yml` still resolves the environment
+> name once in `context` and threads it down through `with: environment:`
+> so the called job's own `environment: ${{ inputs.environment }}`
+> resolves to the same value pipeline.yml computed — it just can't also
+> declare it a second time on its own `uses:` job.
 
-**Update — a third shape, for a direct `workflow_dispatch` deploy.**
-`deploy-web.yml` and `deploy-api.yml` now declare `environment:
-${{ inputs.environment }}` on their own job **in addition to**
-`pipeline.yml` declaring it on the calling job — a direct
-`workflow_dispatch` run has no caller to declare it on, so the called
-job needs its own. Both sides always resolve to the same environment
-name (`pipeline.yml`'s `context` job output, threaded through as
-`with: environment:`), which is the mitigation for the ordering caveat
-above: the two declarations name the same environment rather than
-disagreeing about which one applies. This has **not** been verified
-against a live run as of this writing — do the Step 8 dry run on both
-paths (via `pipeline.yml` and via a direct
-`gh workflow run deploy-web.yml -f environment=preview -f
-pages_branch=dev`) before trusting either for a real deploy, and update
-this note with the result once it has been.
+**A direct `workflow_dispatch` deploy uses the same, single shape.**
+`deploy-web.yml` and `deploy-api.yml`'s `environment: ${{
+inputs.environment }}` is what makes both a `pipeline.yml`-driven deploy
+and a direct `gh workflow run deploy-web.yml -f environment=preview -f
+pages_branch=dev` resolve secrets/vars from the right environment and
+require that environment's protection rules — there's no second
+declaration to reconcile, because there's nowhere else it's allowed to
+go. Still do a real Step 8 dry run on both paths before trusting either
+for a production deploy; the schema being valid confirms the workflow
+*parses*, not that the secrets it reads are the ones you expect.
 
 **c. Delete the repository-scoped copies** — but only after Step 8's
 verification passes on both branches:

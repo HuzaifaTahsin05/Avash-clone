@@ -69,13 +69,17 @@ gh workflow run deploy-web.yml --ref dev -f environment=preview -f pages_branch=
 gh workflow run deploy-api.yml --ref dev -f environment=preview -f wrangler_env=preview -f smoke_test_origin_var=PREVIEW_API_ORIGIN
 ```
 
-Both workflows now declare `environment: ${{ inputs.environment }}` on
-their own job specifically so this works standalone — a direct dispatch
-has no `pipeline.yml` caller to declare it on, but the environment's
-secrets, variables, and required-reviewer protection rule (if any) still
-need to apply. See `docs/security/github-environments.md` § Step 6's
-"third shape" note for the reasoning and the verification this still
-needs before being trusted for a real production deploy.
+Both workflows declare `environment: ${{ inputs.environment }}` on their
+own job — the only place GitHub's schema allows it on a job that
+`pipeline.yml` also calls via `uses:` (declaring it on both is a schema
+error, not just a style choice; see the corrected note in
+`docs/security/github-environments.md` § Step 6). That single
+declaration is what makes both this direct dispatch and a
+`pipeline.yml`-driven deploy resolve the right environment's
+secrets/vars and require its protection rules. Validate any future edit
+to these three workflows with `act -l -W <file>` before pushing —
+`pipeline.yml` failed silently (zero jobs, "Invalid workflow file") for
+several hours on this branch before that check caught it.
 
 **3. Dispatch `pipeline.yml` with the gate bypass**, for the case where
 `ci`/`codeql` are red — the gates are red for a reason unrelated to
