@@ -442,3 +442,36 @@ managed by Supabase Auth, not created by this project's migrations. Every
 edge label states the child's `on delete` action (§4.3) — `||` denotes a
 mandatory (`not null`) foreign key, `|o` denotes an optional (nullable)
 one.
+
+## 4.4 API Read Views
+
+`packages/db/supabase/migrations/20260215000009_api_read_views.sql` adds
+four read-only views for `apps/api`. None adds, alters, or removes a
+table, column, or index — §4 above remains the schema of record. Each
+view exists because PostgREST (what `@supabase/supabase-js` talks to)
+cannot itself call `ST_AsGeoJSON`, `ST_Centroid`,
+`ST_SimplifyPreserveTopology`, express `DISTINCT ON`, or express a bbox
+intersection — every view pushes exactly one of those operations into SQL
+and exposes plain scalars the REST layer can filter on.
+
+All four are declared `with (security_invoker = true)`: without it, a
+view runs with its definer's rights and silently bypasses the RLS
+policies in `20260201000007_rls_policies.sql`. `apps/api` currently reads
+every one of them with the service-role key, which bypasses RLS
+regardless — `security_invoker` is defense in depth for any future
+anon/authenticated read added later, not a control this slice currently
+depends on. None of the four carries a `grant` to `anon` or
+`authenticated`; only the service role can query them today.
+
+| View | Reads | Exposes | Consumed by |
+|---|---|---|---|
+| `region_weather_observations` | `weather_observations` joined to `regions` | Every observation row with `region_code`/`region_name` attached, so a caller never needs a second round trip for the region label | `GET /api/weather/history` |
+| `region_latest_weather` | `region_weather_observations` | `select distinct on (region_id) ...` ordered by `observed_at desc` — one row per region, the newest observation | `GET /api/weather/latest` |
+| `region_ingest_targets` | `regions` | One row per region: `region_id`, `code`, `name`, and `lat`/`lon` as plain `numeric(9,6)` from `ST_Y`/`ST_X` of `ST_Centroid(geom)` — emitted as numerics, not geometry, so the ingest job never decodes WKB | `scripts/jobs/weather-ingest.ts` |
+| `region_risk_geojson` | `region_risk_summary` (materialized view, §4) | Per-region `risk_score`, `risk_level`, `horizon_weeks`, `generated_at`, a GeoJSON `geometry` column (`ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.001))::jsonb` — `MAP_GEOMETRY_SIMPLIFY_TOLERANCE_DEG`, §14) and a plain-numeric bounding envelope (`min_lon`, `min_lat`, `max_lon`, `max_lat`) so `?bbox=` is expressible as four ordinary PostgREST range filters | `GET /api/risk-map` |
+
+`region_risk_geojson`'s envelope columns are the mechanism, not an
+incidental detail: two boxes intersect iff `a.min <= b.max` on both axes,
+which is four range comparisons PostgREST already knows how to build from
+query parameters — no bbox-intersection operator has to reach the REST
+layer at all.
