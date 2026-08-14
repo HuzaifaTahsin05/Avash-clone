@@ -31,6 +31,19 @@ on:
   schedule:
     - cron: "0 4 * * 1"
   workflow_dispatch:
+    inputs:
+      bypass_gates:
+        description: >-
+          Break-glass only. Skip waiting on ci/codeql before building
+          images and deploying — the gate jobs still run and still show
+          their real red/green, this only stops a bypassed one from
+          blocking deploy-web/deploy-api. Does not skip a build failure
+          inside images/ml-image itself, and does not touch each
+          environment's own required-reviewer protection rule, which
+          still applies normally. Only meaningful on this manual trigger;
+          ignored on push/pull_request/schedule.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -111,6 +124,10 @@ jobs:
               ;;
           esac
 
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "${{ inputs.bypass_gates }}" = "true" ]; then
+            echo "::warning::bypass_gates is set — images/ml-image will proceed even if ci or codeql failed. Deploy still requires images/ml-image's own steps to succeed and each environment's required-reviewer rule, if any."
+          fi
+
           {
             echo "channel=$channel"
             echo "publish=$publish"
@@ -139,6 +156,15 @@ jobs:
 
   images:
     needs: [context, ci, codeql]
+    # always() so a bypassed ci/codeql failure doesn't auto-skip this job
+    # (default needs: behavior skips downstream when any need fails).
+    # The explicit per-need checks below are what actually gate it: a
+    # normal run still requires both to have succeeded, same as before.
+    if: |
+      always() &&
+      needs.context.result == 'success' &&
+      (needs.ci.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.bypass_gates == true)) &&
+      (needs.codeql.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.bypass_gates == true))
     permissions:
       contents: read
       packages: write
@@ -149,6 +175,10 @@ jobs:
 
   ml-image:
     needs: [ci, codeql]
+    if: |
+      always() &&
+      (needs.ci.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.bypass_gates == true)) &&
+      (needs.codeql.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.bypass_gates == true))
     uses: ./.github/workflows/docker-image-scan.yml
 
   # ---- Stage 3: deploy. Reached only through both stages above. ----
@@ -156,12 +186,18 @@ jobs:
   deploy-web:
     needs: [context, images, ml-image]
     if: needs.context.outputs.deploy_web == 'true'
-    # Declared on the calling job, not inside deploy-web.yml
-    # (docs/security/github-environments.md § Step 6 Ordering caveat) — an
-    # `environment:` on the *called* workflow's job makes the `secrets:`
-    # mapping below resolve at repository scope, not environment scope.
-    # This is the line that makes production require an approval and
-    # makes `${{ secrets.X }}` below resolve to this environment's copy.
+    # deploy-web.yml's own job ALSO declares environment: now (it needs
+    # to, for the workflow_dispatch path that has no caller to declare
+    # it on). Declaring it here too is what makes production require an
+    # approval on *this* path into the environment, same as before — and
+    # since both sides always resolve to the same name (this output,
+    # threaded through as `with: environment:` below), the two
+    # declarations name the same environment rather than disagreeing.
+    # docs/security/github-environments.md § Step 6 documents the
+    # ordering caveat this used to avoid by only declaring it here; that
+    # tradeoff is deliberate now that deploy-web.yml supports a direct
+    # dispatch — verify secret resolution still holds with a real dry
+    # run (§ Step 8) rather than assuming.
     environment: ${{ needs.context.outputs.environment }}
     permissions:
       contents: read
@@ -180,7 +216,7 @@ jobs:
   deploy-api:
     needs: [context, images, ml-image]
     if: needs.context.outputs.deploy_api == 'true'
-    # See deploy-web's environment: comment above — same ordering caveat.
+    # See deploy-web's environment: comment above — same reasoning.
     environment: ${{ needs.context.outputs.environment }}
     uses: ./.github/workflows/deploy-api.yml
     secrets:

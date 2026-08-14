@@ -339,6 +339,22 @@ can read in one screen, and adding a secret to it is a reviewable diff.
 > Step 8 rather than assuming — this is the single most common way a
 > per-environment split ends up injecting nothing.
 
+**Update — a third shape, for a direct `workflow_dispatch` deploy.**
+`deploy-web.yml` and `deploy-api.yml` now declare `environment:
+${{ inputs.environment }}` on their own job **in addition to**
+`pipeline.yml` declaring it on the calling job — a direct
+`workflow_dispatch` run has no caller to declare it on, so the called
+job needs its own. Both sides always resolve to the same environment
+name (`pipeline.yml`'s `context` job output, threaded through as
+`with: environment:`), which is the mitigation for the ordering caveat
+above: the two declarations name the same environment rather than
+disagreeing about which one applies. This has **not** been verified
+against a live run as of this writing — do the Step 8 dry run on both
+paths (via `pipeline.yml` and via a direct
+`gh workflow run deploy-web.yml -f environment=preview -f
+pages_branch=dev`) before trusting either for a real deploy, and update
+this note with the result once it has been.
+
 **c. Delete the repository-scoped copies** — but only after Step 8's
 verification passes on both branches:
 

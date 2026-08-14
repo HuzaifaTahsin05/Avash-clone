@@ -50,6 +50,70 @@ Branch → channel is resolved once, in `pipeline.yml`'s `context` job, and
 passed down as workflow inputs. No downstream job re-derives it from
 `github.ref`.
 
+### Manual runs and urgent deploys
+
+Three ways to trigger a deploy by hand, from least to most bypassed:
+
+**1. Dispatch the full pipeline.** `gh workflow run pipeline.yml --ref dev`
+(or `--ref main`) runs the full graph above exactly as a push would, with
+the same per-environment secret resolution, and deploys if `ci`/`codeql`
+are green. This is the normal path for a manual re-run — nothing is
+skipped.
+
+**2. Dispatch `deploy-web.yml`/`deploy-api.yml` directly**, for a deploy
+that doesn't need a fresh image build/scan at all — e.g. re-pushing a
+build that already passed CI once:
+
+```bash
+gh workflow run deploy-web.yml --ref dev -f environment=preview -f pages_branch=dev
+gh workflow run deploy-api.yml --ref dev -f environment=preview -f wrangler_env=preview -f smoke_test_origin_var=PREVIEW_API_ORIGIN
+```
+
+Both workflows now declare `environment: ${{ inputs.environment }}` on
+their own job specifically so this works standalone — a direct dispatch
+has no `pipeline.yml` caller to declare it on, but the environment's
+secrets, variables, and required-reviewer protection rule (if any) still
+need to apply. See `docs/security/github-environments.md` § Step 6's
+"third shape" note for the reasoning and the verification this still
+needs before being trusted for a real production deploy.
+
+**3. Dispatch `pipeline.yml` with the gate bypass**, for the case where
+`ci`/`codeql` are red — the gates are red for a reason unrelated to
+the code being shipped (a missing external credential, an infra dependency
+that isn't provisioned yet, anything you have independently verified is safe
+to ship past) — the manual trigger takes a `bypass_gates` boolean input,
+default `false`:
+
+```bash
+gh workflow run pipeline.yml --ref dev -f bypass_gates=true
+```
+
+What it does and does not change:
+
+- `ci` and `codeql` still run and still report their real pass/fail — this
+  does not hide or skip them, it only stops a **bypassed** one from
+  auto-skipping `images`/`ml-image` downstream (the default `needs:`
+  behavior, which normally treats "a need failed" and "a need was skipped"
+  the same way).
+- `images`/`ml-image` still have to succeed on their own merits — a real
+  Docker build failure or a Trivy HIGH/CRITICAL finding still blocks
+  `deploy-web`/`deploy-api` exactly as it does on a normal run. The bypass
+  only removes the `ci`/`codeql` precondition, not the image stage itself.
+- Each environment's required-reviewer protection rule (if configured,
+  `docs/security/github-environments.md`) is untouched and still applies —
+  this input cannot skip a human approval gate.
+- The run logs a `::warning::` in the `context` job's summary whenever it's
+  set, so a bypassed deploy is never quiet in the Actions history.
+- It only does anything on `workflow_dispatch`; the input is ignored on
+  `push`/`pull_request`/`schedule`.
+
+This exists specifically for the situation where the API contract suite
+(`e2e-api`, `api-container-parity` in `ci.yml`) is red because no hosted
+Supabase project has secrets wired into CI yet (§ Required secrets above) —
+a known, tracked gap, not a defect in what's being deployed. Use it
+narrowly and say why in the deploy record (`docs/manual-deploy.md` §
+Record it).
+
 ## Workflow index
 
 | Workflow | Triggers | Purpose |

@@ -50,6 +50,30 @@ on:
         required: false
       TURNSTILE_SECRET_KEY:
         required: false
+  # A direct, standalone trigger for an urgent deploy that doesn't need
+  # the full pipeline.yml graph rebuilt — same job, same environment:
+  # gating below, just reachable without going through the caller.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment to draw secrets and variables from.
+        type: choice
+        options: [preview, production]
+        required: true
+      wrangler_env:
+        description: >-
+          wrangler environment from apps/api/wrangler.toml: "production"
+          (main) or "preview" (dev).
+        type: choice
+        options: [preview, production]
+        required: true
+      smoke_test_origin_var:
+        description: >-
+          Name of the repository variable holding the deployed Worker's
+          origin for the post-deploy smoke test (e.g.
+          PRODUCTION_API_ORIGIN or PREVIEW_API_ORIGIN).
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -58,6 +82,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # See the identical comment in deploy-web.yml — set here so a direct
+    # workflow_dispatch run resolves this environment's secrets/vars and
+    # protection rules without a caller job to declare it on.
+    environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
         with:
