@@ -57,6 +57,62 @@ const HOSPITALS: Array<{ regionCode: string; name: string; lon: number; lat: num
 
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
 
+// docs/constants-registry.md WEATHER_HISTORY_WINDOW_DAYS — owned by
+// apps/api/src/routes/weather.ts, matched here so the seeded history
+// actually fills the dashboard's history window instead of leaving it
+// mostly empty.
+const WEATHER_HISTORY_WINDOW_DAYS = 14;
+
+// docs/PROJECT_PLAN.md §5.4 / STUB_MODEL_VERSION (packages/types/ml.ts).
+// Kept as a literal rather than importing @avash/types: this script is run
+// via `tsx` outside the workspace's TS project references, and
+// scripts/seed-db.ts already predates that package boundary (see
+// DATABASE_URL_LOCAL doc comment above) — must be kept byte-for-byte equal
+// to packages/types/ml.ts's STUB_MODEL_VERSION.
+const STUB_MODEL_VERSION = 'stub-0.0.0';
+
+const RISK_HORIZONS_WEEKS = [2, 4] as const;
+
+type RiskFactorDirection = 'increases' | 'decreases';
+interface RiskFactorSeed {
+  feature: string;
+  contribution: number;
+  direction: RiskFactorDirection;
+}
+
+// Fixed 3-element top_factors array, real feature names from
+// docs/PROJECT_PLAN.md §5.1 — placeholder SHAP-shaped output until the
+// real pipeline (ml/serving/predict.py) starts writing this column.
+const STUB_TOP_FACTORS: RiskFactorSeed[] = [
+  { feature: 'humidity_roll', contribution: 0.34, direction: 'increases' },
+  { feature: 'temp_mean_roll', contribution: 0.21, direction: 'increases' },
+  { feature: 'case_lag_1', contribution: 0.12, direction: 'decreases' },
+];
+
+/**
+ * FNV-1a — small, dependency-free, and gives good bit dispersion for short
+ * strings (unlike a naive polynomial hash, which clustered every seeded
+ * region into the same risk band when tried by hand). Deterministic: the
+ * same region code + horizon always produces the same score, so reruns are
+ * stable and `on conflict do nothing` is genuinely a no-op.
+ */
+function fnv1a(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/** Deterministic risk_score in [0.05, 0.95] derived from the region code + horizon. */
+function stubRiskScore(regionCode: string, horizonWeeks: number): number {
+  const hash = fnv1a(`${regionCode}:h${horizonWeeks}`);
+  const normalized = (hash % 10000) / 10000; // [0, 1)
+  const score = 0.05 + normalized * 0.9; // [0.05, 0.95]
+  return Math.round(score * 1000) / 1000;
+}
+
 function bboxToMultiPolygonWkt([minLon, minLat, maxLon, maxLat]: [number, number, number, number]): string {
   return `MULTIPOLYGON(((${minLon} ${minLat},${minLon} ${maxLat},${maxLon} ${maxLat},${maxLon} ${minLat},${minLon} ${minLat})))`;
 }
@@ -92,7 +148,7 @@ async function main() {
     let weatherInserted = 0;
     for (const region of REGIONS) {
       const regionId = regionIds.get(region.code);
-      for (let daysAgo = 0; daysAgo < 7; daysAgo++) {
+      for (let daysAgo = 0; daysAgo < WEATHER_HISTORY_WINDOW_DAYS; daysAgo++) {
         const observedAt = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
         const dayBucket = observedAt.slice(0, 10);
 
@@ -103,11 +159,30 @@ async function main() {
         );
         if (existing.length > 0) continue;
 
+        // Varied, not flat — a small deterministic wave by day-offset so a
+        // sparkline chart has real shape instead of a flat line, plus a
+        // per-region offset so the three regions are visibly different.
+        const wave = Math.sin((daysAgo / WEATHER_HISTORY_WINDOW_DAYS) * Math.PI * 2);
+        const regionOffset = fnv1a(region.code) % 5;
+        const tempMean = 27.5 + regionOffset * 0.4 + wave * 2.5;
+        const tempMin = tempMean - 4.5 - Math.abs(wave);
+        const tempMax = tempMean + 4.5 + Math.abs(wave);
+        const humidity = 72 + regionOffset * 2 + wave * 8;
+        const precipitation = Math.max(0, 3 + wave * 6 - regionOffset);
+
         await client.query(
           `insert into weather_observations
              (region_id, observed_at, temp_mean_c, temp_min_c, temp_max_c, humidity_pct, precipitation_mm, source)
            values ($1, $2, $3, $4, $5, $6, $7, 'seed')`,
-          [regionId, observedAt, 28.5, 24.1, 33.2, 82.0, 4.5]
+          [
+            regionId,
+            observedAt,
+            Math.round(tempMean * 10) / 10,
+            Math.round(tempMin * 10) / 10,
+            Math.round(tempMax * 10) / 10,
+            Math.round(humidity * 10) / 10,
+            Math.round(precipitation * 10) / 10,
+          ]
         );
         weatherInserted++;
       }
@@ -159,6 +234,40 @@ async function main() {
       }
     }
     console.log(`blood_inventory: ${inventoryInserted} inserted this run`);
+
+    // --- Seeded placeholder risk predictions (docs/PROJECT_PLAN.md §4, §5) ---
+    // Two rows per region (horizon_weeks 2 and 4) for today's prediction_date,
+    // so the map / dashboard has something to render before
+    // ml/serving/predict.py ever runs. model_version = STUB_MODEL_VERSION
+    // marks these as placeholders — a future real prediction pipeline run
+    // replaces them (it writes a real semver model_version and a later
+    // prediction_date, which `region_risk_summary`'s DISTINCT ON picks up
+    // automatically). risk_level is a generated column — never inserted.
+    const predictionDate = new Date().toISOString().slice(0, 10);
+    let predictionsInserted = 0;
+    for (const region of REGIONS) {
+      const regionId = regionIds.get(region.code);
+      for (const horizonWeeks of RISK_HORIZONS_WEEKS) {
+        const riskScore = stubRiskScore(region.code, horizonWeeks);
+        const { rowCount } = await client.query(
+          `insert into risk_predictions
+             (region_id, prediction_date, horizon_weeks, risk_score, top_factors, model_version)
+           values ($1, $2, $3, $4, $5::jsonb, $6)
+           on conflict (region_id, horizon_weeks, prediction_date) do nothing`,
+          [regionId, predictionDate, horizonWeeks, riskScore, JSON.stringify(STUB_TOP_FACTORS), STUB_MODEL_VERSION]
+        );
+        predictionsInserted += rowCount ?? 0;
+      }
+    }
+    console.log(`risk_predictions: ${predictionsInserted} inserted this run (stub, model_version=${STUB_MODEL_VERSION})`);
+
+    // region_risk_summary (packages/db/supabase/migrations/20260201000004_region_risk_summary_mv.sql)
+    // is the map's read surface and is never refreshed on the request path —
+    // refresh it here so a fresh `db:seed` is immediately visible through
+    // region_risk_geojson, the same refresh scripts/refresh-materialized-views.ts
+    // runs after every batch-predict run.
+    await client.query('refresh materialized view concurrently region_risk_summary;');
+    console.log('region_risk_summary refreshed (concurrently)');
 
     console.log('seed complete');
   } finally {
