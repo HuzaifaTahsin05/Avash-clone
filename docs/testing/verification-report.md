@@ -63,3 +63,80 @@ Headless Chrome, mobile-emulation defaults, against `pnpm --filter web preview`:
 - GitHub Environments, branch protection, and provisioned per-environment credentials — requires GitHub UI/API access this session does not have. Tracked in the project's final handoff report.
 - A live deploy to Cloudflare Pages/Workers — no real Cloudflare account/zone is configured yet.
 - `zizmor`, SBOM/provenance, and the remaining pipeline-hardening items — separate work item, not part of this verification sweep.
+
+## 8. Weather Dashboard
+
+Scaffold only, added ahead of the route bodies and page landing — the
+automated matrix below documents what covers this slice once
+implementation is complete; the manual checklist is empty pending an
+integration pass. See `docs/features/weather-dashboard.md` for the full
+technical detail.
+
+### 8.1 Automated test matrix
+
+| Layer | Location | Covers | CI gate |
+|---|---|---|---|
+| Vitest, `node` | `packages/geo/test/*.test.ts` (existing) | `parseBbox`/region-code helpers shared with the risk map, if any weather-specific parsing is added | `pnpm test` |
+| Vitest, workerd | `apps/api/test/routes/weather.test.ts` (to be added with the route implementation) | `/api/weather/latest` and `/api/weather/history` success/failure branches, `days` clamping, missing-`regionCode` 400, Cache-Control header, CORS matrix | `pnpm test` |
+| Playwright, `apps/api` (both runtimes) | `apps/api/e2e/weather.spec.ts` (this slice) | One schema-valid 200 per route, Cache-Control header set, disallowed-origin CORS rejection, one 400 path (missing `regionCode`) | `pnpm --filter api test:e2e`, `API_TEST_TARGET=container pnpm --filter api test:e2e` |
+| Playwright, `apps/web` | `apps/web/e2e/weather.spec.ts` (this slice) | Page load, region selector population, region switch changing displayed values, sparkline render, generic error state with no raw error text on API failure | `pnpm --filter web test:e2e` |
+
+### 8.2 Manual checklist (three-pass, `docs/standards/testing.md` §"Manual, three-pass protocol")
+
+**Date:** _pending_ · **Tester:** _pending_ · **Reviewer sign-off:** _pending_
+
+**Happy path**
+1. Load `/weather` with a live `apps/api` and seeded `weather_observations` data. Expected: the region selector lists every seeded region; the first region's latest reading renders with no "no data" markers where data exists.
+2. Select a different region from the selector. Expected: the latest-reading values and the sparkline both update to that region's data within one request cycle, no stale values left rendered.
+3. Confirm the sparkline's date range matches `WEATHER_HISTORY_WINDOW_DAYS` (14 days back from the latest observation). Expected: the earliest point on the chart is within a day of 14 days before the latest point.
+
+**Degraded path**
+1. Stop `apps/api` (or point `VITE_PUBLIC_API_BASE_URL` at an unreachable host) and load `/weather`. Expected: a generic error state renders; no raw fetch error, stack trace, or unhandled promise rejection appears in the page or the browser console.
+2. Point `apps/api` at an empty `weather_observations` table (fresh DB, `pnpm db:migrate` with no `pnpm db:seed`) and load `/weather`. Expected: an explicit empty state, not a blank page or a thrown error — the region selector may be empty or show a "no regions yet" message, but the page does not crash.
+3. Load `/weather`, then use DevTools to go offline (or `context.setOffline(true)` equivalent) and switch region. Expected: an offline-specific message renders, distinct from the generic error state, consistent with the offline handling already proven for `/` in `apps/web/e2e/health-integration.spec.ts`.
+
+**Adversarial path**
+1. Call `GET /api/weather/history` (no `regionCode`) directly with `curl`. Expected: `400` with the generic error body (`{"error":{"message":...,"requestId":...}}`), no raw validation-library message.
+2. Call `GET /api/weather/history?regionCode=dhaka&days=99999`. Expected: `200` with `windowDays` clamped to `14`, never `99999`.
+3. Call `GET /api/weather/history?regionCode=<a UUID-looking but non-existent code>`. Expected: `200` with `points: []`, not a `500` or a leaked DB error — this is well-formed input for a region with no matching rows, not a malformed request.
+4. Call either weather route from an unregistered `Origin` header (e.g. `https://evil.example`). Expected: no `Access-Control-Allow-Origin` header in the response.
+
+## 9. Risk Map
+
+Scaffold only, added ahead of the route bodies and page landing — the
+automated matrix below documents what covers this slice once
+implementation is complete; the manual checklist is empty pending an
+integration pass. See `docs/features/risk-map.md` for the full technical
+detail.
+
+### 9.1 Automated test matrix
+
+| Layer | Location | Covers | CI gate |
+|---|---|---|---|
+| Vitest, `node` | `packages/geo/test/geo.test.ts` (existing) | `parseBbox` — malformed, out-of-range, inverted, and over-`BBOX_MAX_SPAN_DEG` cases | `pnpm test` |
+| Vitest, workerd | `apps/api/test/routes/risk-map.test.ts` (to be added with the route implementation) | `/api/risk-map` and `/api/risk/:regionId` success/failure branches, horizon validation, bbox validation, 404-vs-400 distinction, Cache-Control header, CORS matrix | `pnpm test` |
+| Playwright, `apps/api` (both runtimes) | `apps/api/e2e/risk-map.spec.ts` (this slice) | One schema-valid 200 per route, Cache-Control header set, disallowed-origin CORS rejection, one 400 path (oversized bbox / malformed regionId), one 404 path (well-formed-unknown region) | `pnpm --filter api test:e2e`, `API_TEST_TARGET=container pnpm --filter api test:e2e` |
+| Playwright, `apps/web` | `apps/web/e2e/risk-map.spec.ts` (this slice) | Map container mount, tile requests to the registered host, region polygon rendering, four-band legend, horizon toggle refetch, region click opening the detail panel, provenance banner visibility | `pnpm --filter web test:e2e` |
+
+### 9.2 Manual checklist (three-pass, `docs/standards/testing.md` §"Manual, three-pass protocol")
+
+**Date:** _pending_ · **Tester:** _pending_ · **Reviewer sign-off:** _pending_
+
+**Happy path**
+1. Load `/risk` with a live `apps/api` and seeded `risk_predictions`/`regions` data. Expected: the map renders centered on `MAP_DEFAULT_CENTER` at `MAP_DEFAULT_ZOOM`, every seeded region is shaded by its risk level, and the provenance banner is visible (predictions are seeded stubs, `modelVersion === 'stub-0.0.0'`).
+2. Click a shaded region. Expected: the detail panel opens showing that region's name, risk score/level, and `isStub: true` reflected in the UI (e.g. the same "placeholder" language as the banner).
+3. Toggle the horizon control from 2 weeks to 4 weeks. Expected: a new `/api/risk-map?horizon=4` request fires and the shading updates to the 4-week prediction; toggling back to 2 weeks re-fetches `horizon=2`.
+4. Pan/zoom the map. Expected: OSM attribution stays visible at all times (tile usage policy requirement); no console errors from tile loading.
+
+**Degraded path**
+1. Stop `apps/api` and load `/risk`. Expected: a generic error state renders — no raw fetch error or stack trace anywhere in the page.
+2. Point `apps/api` at a DB with `regions` seeded but no `risk_predictions` rows. Expected: the map renders with no shaded regions (an explicit empty state), not a crash; `generatedAt: null` in the response is handled without throwing.
+3. Load `/risk` fully, then go offline and click a different region. Expected: an offline-specific message renders for the detail-panel fetch, distinct from the generic error state.
+
+**Adversarial path**
+1. Call `GET /api/risk-map?bbox=-180,-90,180,90` (spans far beyond `BBOX_MAX_SPAN_DEG`) directly with `curl`. Expected: `400` with the generic error body, no PostGIS/PostgREST error text.
+2. Call `GET /api/risk-map?horizon=3` (not `2` or `4`). Expected: `400`, generic body.
+3. Call `GET /api/risk/not-a-uuid`. Expected: `400`, generic body, no raw UUID-parser error.
+4. Call `GET /api/risk/ffffffff-ffff-ffff-ffff-ffffffffffff` (well-formed, no matching region). Expected: `404`, generic body — distinct from the `400` cases above, and never a `500`.
+5. Call any risk route from an unregistered `Origin` header. Expected: no `Access-Control-Allow-Origin` header in the response.
+6. From the browser DevTools network tab, confirm no request the risk map issues carries a Supabase service-role key, a Gemini key, or any other non-`VITE_PUBLIC_` credential — the risk map is a public read path with no secret on the wire.

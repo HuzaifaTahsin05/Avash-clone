@@ -58,6 +58,26 @@ general principle.
 |---|---|---|---|
 | CORS Misconfiguration | An overly permissive `Access-Control-Allow-Origin` lets any site call the API with a user's token | `apps/api`'s CORS middleware allow-lists exact production + PR-preview Cloudflare Pages origins only, never `*`, never a regex wildcard on write routes | `apps/api/src/middleware/cors.ts` |
 
+## Weather Dashboard (public, unauthenticated)
+
+| Threat | Vector | Mitigation | Enforcement point |
+|---|---|---|---|
+| Tampering | A forged `regionCode`/`days` value reaching a SQL query | zod-schema parsing before any query runs; PostgREST parameterizes every filter it builds from the validated values | `apps/api/src/routes/weather.ts`, zod schemas in `packages/types` |
+| Information Disclosure | A PostgREST error body echoed straight back to the client | Generic `buildGenericErrorBody()` response on every error branch; the real error is logged server-side keyed by `requestId` | `apps/api/src/routes/weather.ts` (`@avash/logger`) |
+| Information Disclosure | `OPENWEATHERMAP_API_KEY` appearing in a job log via the request URL (the key is a query parameter on that provider's API) | The ingest job logs only the region code and HTTP status per attempt, never the request URL; GitHub Actions independently masks any literal `secrets.*` value in output | `scripts/jobs/weather-ingest.ts` |
+| Denial of Service | An oversized `?days=` value, or a flood of requests, forcing a large scan | Server-side clamp to `WEATHER_HISTORY_WINDOW_DAYS` (14); existing 5 s DB statement timeout; reads go through `region_weather_observations`/`region_latest_weather` views | `apps/api/src/routes/weather.ts` |
+| Spoofing | None new — both weather routes are unauthenticated public reads with no identity to spoof | Not applicable; stated explicitly rather than left unconsidered | n/a |
+
+## Risk Map (public, unauthenticated)
+
+| Threat | Vector | Mitigation | Enforcement point |
+|---|---|---|---|
+| Tampering | A forged `bbox`/`horizon` value reaching a SQL query | `horizonWeeksSchema` + `parseBbox()` validation before any query runs; PostgREST parameterizes every filter built from the validated values | `apps/api/src/routes/risk-map.ts`, `packages/geo/bbox.ts` |
+| Information Disclosure | A PostgREST error body echoed straight back to the client | Generic `buildGenericErrorBody()` response on every error branch; real error logged server-side keyed by `requestId` | `apps/api/src/routes/risk-map.ts` (`@avash/logger`) |
+| Denial of Service | Unbounded `bbox` (or a flood of requests) forcing a full scan | `BBOX_MAX_SPAN_DEG`; existing 5 s DB statement timeout; `region_risk_geojson` reads a materialized view — spatial work already done before the request path | `packages/geo/bbox.ts`, `apps/api/src/routes/risk-map.ts`, `packages/db/supabase/migrations/20260215000009_api_read_views.sql` |
+| Denial of Service | Bulk/rapid tile requests against the free, unauthenticated OSM tile service (tile-usage-policy violation) | Partially mitigated: `MAP_TILE_MAX_ZOOM` bounds request volume per viewport, attribution is shown per OSM policy. **Not yet mitigated:** no `CacheFirst` service-worker/Workbox tile-caching policy exists in the repository as of this writing — checked, not found — this is an open gap | `apps/web/src/features/map/tileLayer.ts`; no service-worker config present under `apps/web` |
+| Spoofing | None new — both risk-map routes are unauthenticated public reads with no identity to spoof | Not applicable; stated explicitly rather than left unconsidered | n/a |
+
 ---
 
 This threat model is re-run against the *actual shipped code* (not just
