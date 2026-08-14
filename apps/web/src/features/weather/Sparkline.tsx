@@ -16,7 +16,7 @@ export function Sparkline({ points, label }: SparklineProps) {
 
   if (scaled.points.length === 0) {
     return (
-      <figure className="sparkline">
+      <figure className="sparkline" data-testid="weather-sparkline">
         <figcaption className="sparkline__caption">
           {label}: {scaled.trendSummary}
         </figcaption>
@@ -27,7 +27,7 @@ export function Sparkline({ points, label }: SparklineProps) {
   const ariaLabel = `${label}: ${scaled.trendSummary}`;
 
   return (
-    <figure className="sparkline">
+    <figure className="sparkline" data-testid="weather-sparkline">
       <svg
         className="sparkline__svg"
         viewBox={VIEW_BOX}

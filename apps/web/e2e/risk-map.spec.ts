@@ -21,7 +21,7 @@ const RISK_MAP_URL_PATTERN = 'http://localhost:8787/api/risk-map**';
 const RISK_DETAIL_URL_PATTERN = 'http://localhost:8787/api/risk/**';
 const TILE_URL_PATTERN = 'https://tile.openstreetmap.org/**';
 
-const REGION_ID = '11111111-1111-1111-1111-111111111111';
+const REGION_ID = '11111111-1111-4111-8111-111111111111';
 
 // A minimal valid Polygon-in-MultiPolygon covering a small area, matching
 // multiPolygonGeometrySchema (packages/types/api.ts).

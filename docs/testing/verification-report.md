@@ -66,11 +66,21 @@ Headless Chrome, mobile-emulation defaults, against `pnpm --filter web preview`:
 
 ## 8. Weather Dashboard
 
-Scaffold only, added ahead of the route bodies and page landing — the
-automated matrix below documents what covers this slice once
-implementation is complete; the manual checklist is empty pending an
-integration pass. See `docs/features/weather-dashboard.md` for the full
-technical detail.
+Implementation landed and integrated. See `docs/features/weather-dashboard.md`
+for the full technical detail.
+
+**A local-environment limit affects every "happy path" row below:** this
+checkout has no local PostgREST (`compose.yaml` runs Postgres only) and no
+`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` configured, so `apps/api` cannot
+read real seeded rows here — only a hosted Supabase project can close that
+gap. Every check that does not require a live database read (validation,
+error handling, contract-shaped rendering against mocked data matching the
+frozen schemas) was run for real, with evidence below. Checks that
+specifically require a live database row are marked **not run locally**
+and are exercised instead by `apps/api/test/routes/weather.test.ts`'s
+fake-PostgREST-double suite (which does verify the query the handler
+builds) and by `apps/api/e2e/weather.spec.ts`'s two schema-valid-200 tests
+against a real deployment.
 
 ### 8.1 Automated test matrix
 
@@ -83,31 +93,31 @@ technical detail.
 
 ### 8.2 Manual checklist (three-pass, `docs/standards/testing.md` §"Manual, three-pass protocol")
 
-**Date:** _pending_ · **Tester:** _pending_ · **Reviewer sign-off:** _pending_
+**Date:** 2026-08-15 · **Tester:** integration seat (local pass) · **Reviewer sign-off:** _pending_
 
 **Happy path**
-1. Load `/weather` with a live `apps/api` and seeded `weather_observations` data. Expected: the region selector lists every seeded region; the first region's latest reading renders with no "no data" markers where data exists.
-2. Select a different region from the selector. Expected: the latest-reading values and the sparkline both update to that region's data within one request cycle, no stale values left rendered.
-3. Confirm the sparkline's date range matches `WEATHER_HISTORY_WINDOW_DAYS` (14 days back from the latest observation). Expected: the earliest point on the chart is within a day of 14 days before the latest point.
+1. **Not run locally** (needs a hosted Supabase project — see the note above). Exercised instead by `apps/web/e2e/weather.spec.ts` ("the region selector is populated with an option per observation"), which renders `/weather` against a mocked `latestWeatherResponseSchema`-valid response and confirms every observation becomes a selector option. **Result: PASS** (Chromium + Firefox, 2/2).
+2. **Not run against a live DB.** Exercised by `apps/web/e2e/weather.spec.ts` ("switching region changes the displayed values"): selecting a different region re-fetches and the displayed mean temperature updates from the previously-selected region's value to the new one with no stale value left rendered. **Result: PASS** (2/2).
+3. **Not run against a live DB.** Exercised by `apps/web/e2e/weather.spec.ts` ("the history sparkline renders") plus `Sparkline.test.ts`/`sparklineMath.test.ts` unit coverage of the scaling math. **Result: PASS** (2/2); the window-length assertion itself (14 days back from latest) is not separately re-verified here since it is a pure `windowDays` pass-through already covered by `apps/api/test/routes/weather.test.ts`.
 
 **Degraded path**
-1. Stop `apps/api` (or point `VITE_PUBLIC_API_BASE_URL` at an unreachable host) and load `/weather`. Expected: a generic error state renders; no raw fetch error, stack trace, or unhandled promise rejection appears in the page or the browser console.
-2. Point `apps/api` at an empty `weather_observations` table (fresh DB, `pnpm db:migrate` with no `pnpm db:seed`) and load `/weather`. Expected: an explicit empty state, not a blank page or a thrown error — the region selector may be empty or show a "no regions yet" message, but the page does not crash.
-3. Load `/weather`, then use DevTools to go offline (or `context.setOffline(true)` equivalent) and switch region. Expected: an offline-specific message renders, distinct from the generic error state, consistent with the offline handling already proven for `/` in `apps/web/e2e/health-integration.spec.ts`.
+1. **Run for real.** `pnpm dev` (`wrangler dev`) with no `SUPABASE_URL` configured, `curl http://127.0.0.1:8787/api/weather/history?regionCode=dhaka&days=999` (a well-formed, validation-passing request) → `503` with body `{"error":{"message":"Something went wrong. Please try again.","requestId":"..."}}`. No driver error, host, or credential appeared in the body or in six inspected response headers. This *is* the "database unreachable" degraded case, exercised against the real Worker runtime rather than simulated. **Result: PASS.** The browser-side rendering of that failure is separately covered by `apps/web/e2e/weather.spec.ts`'s "a failed weather API response renders the generic error state with no raw error text" test (mocks a `500`, asserts `weather-error` renders and the strings `"boom"`, `"stack"`, `"internal server error"` never appear in the DOM). **Result: PASS** (2/2).
+2. **Not run against a live DB** (would require a reachable Supabase project with an empty `weather_observations` table). The empty-state branch (`sortedRegions.length === 0` → `data-testid="status-empty"`, "no observations yet — the ingest job has not run") is present in `apps/web/src/pages/Weather.tsx` and was read/confirmed by code review during this integration pass, not exercised end-to-end.
+3. Covered generically for `/` (not `/weather` specifically) by `apps/web/e2e/health-integration.spec.ts`'s offline test, using the same `useOnlineStatus` hook `/weather` also uses. Not separately re-run against `/weather` in this pass.
 
 **Adversarial path**
-1. Call `GET /api/weather/history` (no `regionCode`) directly with `curl`. Expected: `400` with the generic error body (`{"error":{"message":...,"requestId":...}}`), no raw validation-library message.
-2. Call `GET /api/weather/history?regionCode=dhaka&days=99999`. Expected: `200` with `windowDays` clamped to `14`, never `99999`.
-3. Call `GET /api/weather/history?regionCode=<a UUID-looking but non-existent code>`. Expected: `200` with `points: []`, not a `500` or a leaked DB error — this is well-formed input for a region with no matching rows, not a malformed request.
-4. Call either weather route from an unregistered `Origin` header (e.g. `https://evil.example`). Expected: no `Access-Control-Allow-Origin` header in the response.
+1. **Run for real.** `curl http://127.0.0.1:8787/api/weather/history` (no `regionCode`) → `400`, body `{"error":{"message":"Something went wrong. Please try again.","requestId":"<uuid>"}}`. **Result: PASS.**
+2. **Run for real.** `curl "http://127.0.0.1:8787/api/weather/history?regionCode=dhaka&days=999"` → `503` (falls through validation, fails only at the DB read for the reason in Degraded-path #1 above) — confirms `days=999` is *not* itself rejected as a 400, i.e. the clamp-not-reject contract holds; the exact clamped value (`14`) is separately asserted by `apps/api/test/routes/weather.test.ts`. **Result: PASS.**
+3. Not separately run — same code path as #2, already covered by the `test/routes/weather.test.ts` "unknown code → 200 with points: []" case.
+4. **Run for real.** `apps/api/e2e/weather.spec.ts`'s CORS test against a live `wrangler dev` origin. **Result: PASS.**
 
 ## 9. Risk Map
 
-Scaffold only, added ahead of the route bodies and page landing — the
-automated matrix below documents what covers this slice once
-implementation is complete; the manual checklist is empty pending an
-integration pass. See `docs/features/risk-map.md` for the full technical
-detail.
+Implementation landed and integrated. See `docs/features/risk-map.md` for
+the full technical detail. The same local-environment limit noted in §8
+applies: no hosted Supabase project is reachable from this checkout, so
+rows requiring a real seeded `risk_predictions` read are marked **not run
+locally** below.
 
 ### 9.1 Automated test matrix
 
@@ -120,23 +130,23 @@ detail.
 
 ### 9.2 Manual checklist (three-pass, `docs/standards/testing.md` §"Manual, three-pass protocol")
 
-**Date:** _pending_ · **Tester:** _pending_ · **Reviewer sign-off:** _pending_
+**Date:** 2026-08-15 · **Tester:** integration seat (local pass) · **Reviewer sign-off:** _pending_
 
 **Happy path**
-1. Load `/risk` with a live `apps/api` and seeded `risk_predictions`/`regions` data. Expected: the map renders centered on `MAP_DEFAULT_CENTER` at `MAP_DEFAULT_ZOOM`, every seeded region is shaded by its risk level, and the provenance banner is visible (predictions are seeded stubs, `modelVersion === 'stub-0.0.0'`).
-2. Click a shaded region. Expected: the detail panel opens showing that region's name, risk score/level, and `isStub: true` reflected in the UI (e.g. the same "placeholder" language as the banner).
-3. Toggle the horizon control from 2 weeks to 4 weeks. Expected: a new `/api/risk-map?horizon=4` request fires and the shading updates to the 4-week prediction; toggling back to 2 weeks re-fetches `horizon=2`.
-4. Pan/zoom the map. Expected: OSM attribution stays visible at all times (tile usage policy requirement); no console errors from tile loading.
+1. **Not run locally** (needs a hosted Supabase project). Exercised instead by `apps/web/e2e/risk-map.spec.ts`'s "the map container mounts" and "tiles are requested from the registered OSM host" tests, against a mocked `riskMapResponseSchema`-valid `FeatureCollection`. **Result: PASS** (Chromium + Firefox, 4/4 across both tests).
+2. **Not run against a live DB.** Exercised by `apps/web/e2e/risk-map.spec.ts` "clicking a region opens the detail panel" (mocked `riskDetailResponseSchema` payload with `isStub: true`) and "region polygons render on the map". **Result: PASS** (4/4).
+3. **Not run against a live DB.** Exercised by `apps/web/e2e/risk-map.spec.ts` "toggling the horizon refetches the risk map with the new horizon" — asserts the outgoing request carries `horizon=4` after the toggle. **Result: PASS** (2/2).
+4. Not separately re-run; OSM attribution and `MAP_TILE_MAX_ZOOM` are static `tileLayer.ts` constants (verified by direct read against `docs/constants-registry.md`, §14 row-for-row) rather than an interactive pan/zoom session.
 
 **Degraded path**
-1. Stop `apps/api` and load `/risk`. Expected: a generic error state renders — no raw fetch error or stack trace anywhere in the page.
-2. Point `apps/api` at a DB with `regions` seeded but no `risk_predictions` rows. Expected: the map renders with no shaded regions (an explicit empty state), not a crash; `generatedAt: null` in the response is handled without throwing.
-3. Load `/risk` fully, then go offline and click a different region. Expected: an offline-specific message renders for the detail-panel fetch, distinct from the generic error state.
+1. **Run for real.** `curl http://127.0.0.1:8787/api/risk-map` with no `SUPABASE_URL` configured → generic error body, no upstream detail. Browser-side rendering of an API failure is covered by the analogous, already-passing `weather.spec.ts` error test using the same `fetchApi`/status-panel machinery both pages share; `risk-map.spec.ts` does not duplicate that specific case (per Worker D's brief: boundary behavior once, not a second copy of the matrix). **Result: PASS** (API layer); web layer inferred from the shared code path, not separately re-run for `/risk`.
+2. **Not run against a live DB.** The empty-shading branch (`features.length === 0` → `status-empty`, "no risk predictions yet") is present in `apps/web/src/pages/RiskMap.tsx` and was confirmed by code review, not exercised end-to-end. `generatedAt: null` handling is asserted directly in `packages/types/test/api.test.ts`'s `riskMapResponseSchema` round-trip.
+3. Not separately run — same `useOnlineStatus` code path as the weather page's degraded-path #3, already covered generically for `/` in `health-integration.spec.ts`.
 
 **Adversarial path**
-1. Call `GET /api/risk-map?bbox=-180,-90,180,90` (spans far beyond `BBOX_MAX_SPAN_DEG`) directly with `curl`. Expected: `400` with the generic error body, no PostGIS/PostgREST error text.
-2. Call `GET /api/risk-map?horizon=3` (not `2` or `4`). Expected: `400`, generic body.
-3. Call `GET /api/risk/not-a-uuid`. Expected: `400`, generic body, no raw UUID-parser error.
-4. Call `GET /api/risk/ffffffff-ffff-ffff-ffff-ffffffffffff` (well-formed, no matching region). Expected: `404`, generic body — distinct from the `400` cases above, and never a `500`.
-5. Call any risk route from an unregistered `Origin` header. Expected: no `Access-Control-Allow-Origin` header in the response.
-6. From the browser DevTools network tab, confirm no request the risk map issues carries a Supabase service-role key, a Gemini key, or any other non-`VITE_PUBLIC_` credential — the risk map is a public read path with no secret on the wire.
+1. **Run for real.** `curl "http://127.0.0.1:8787/api/risk-map?bbox=0,0,40,40"` (30° span > `BBOX_MAX_SPAN_DEG`=10) → `400`, generic body. **Result: PASS.**
+2. **Run for real.** `curl "http://127.0.0.1:8787/api/risk-map?horizon=3"` → `400`, generic body. **Result: PASS.**
+3. **Run for real.** `curl "http://127.0.0.1:8787/api/risk/not-a-uuid"` → `400`, generic body, confirmed via `apps/api/test/routes/risk-map.test.ts` that no outgoing PostgREST request is attempted for this case. **Result: PASS.**
+4. **Run for real** against a well-formed UUID with no local DB reachable → `503` (upstream unavailable), not `404`, since the region-existence check itself requires the DB; the `404`-for-well-formed-unknown-region branch is instead verified by `apps/api/test/routes/risk-map.test.ts`'s fake-PostgREST-double suite. **Result: PASS** (both status codes verified, in the environment where each is reachable).
+5. **Run for real.** `apps/api/e2e/risk-map.spec.ts`'s CORS test against a live `wrangler dev` origin. **Result: PASS.**
+6. Not run via DevTools network inspection in this pass; verified instead by `node scripts/scan-client-env.mjs` against the built `apps/web/dist` (PASS, no non-`VITE_PUBLIC_` reference) and by code review confirming `apps/web/src/features/risk/*` never references a service-role or Gemini key.

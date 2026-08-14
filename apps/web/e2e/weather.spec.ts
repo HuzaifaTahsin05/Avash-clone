@@ -19,7 +19,7 @@ const HISTORY_URL_PATTERN = 'http://localhost:8787/api/weather/history**';
 const LATEST_PAYLOAD = {
   observations: [
     {
-      regionId: '11111111-1111-1111-1111-111111111111',
+      regionId: '11111111-1111-4111-8111-111111111111',
       regionCode: 'dhaka',
       regionName: 'Dhaka',
       observedAt: '2026-08-14T06:00:00.000Z',
@@ -31,7 +31,7 @@ const LATEST_PAYLOAD = {
       source: 'openweathermap',
     },
     {
-      regionId: '22222222-2222-2222-2222-222222222222',
+      regionId: '22222222-2222-4222-8222-222222222222',
       regionCode: 'chittagong',
       regionName: 'Chittagong',
       observedAt: '2026-08-14T06:00:00.000Z',
@@ -101,11 +101,13 @@ test.describe('weather dashboard', () => {
     await page.goto('/weather');
 
     const select = page.getByTestId('weather-region-select');
-    await expect(page.getByTestId('weather-observed-temp')).toContainText('29.4');
-
-    await select.selectOption({ label: 'Chittagong' });
-
+    // Default selection is the first region alphabetically — "Chittagong"
+    // sorts before "Dhaka".
     await expect(page.getByTestId('weather-observed-temp')).toContainText('28.1');
+
+    await select.selectOption({ label: 'Dhaka' });
+
+    await expect(page.getByTestId('weather-observed-temp')).toContainText('29.4');
   });
 
   test('the history sparkline renders', async ({ page }) => {

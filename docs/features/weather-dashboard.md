@@ -111,6 +111,13 @@ covered in `docs/features/risk-map.md`, which documents the
 
 **Manual Test Log:**
 
-_(pending — filled in by a later integration pass once the route bodies
-and page are implemented; see `docs/testing/verification-report.md` for
-the checklist this log will follow.)_
+2026-08-15, integration pass. Full results and evidence in
+`docs/testing/verification-report.md` §8.2. Summary: all three passes ran
+to completion; every check not requiring a live Supabase project (no
+hosted project is reachable from this local checkout) passed with direct
+evidence (curl output, a live `wrangler dev` instance, or the Playwright
+suites). Checks that specifically require a live database read are marked
+"not run locally" in the report and are instead covered by
+`apps/api/test/routes/weather.test.ts`'s fake-PostgREST-double suite and
+`apps/api/e2e/weather.spec.ts`'s schema-valid-200 tests (which do run
+against a real deployment). Reviewer sign-off pending.

@@ -29,12 +29,12 @@ export default function RiskMap() {
       <h1 className="page__title">Risk Map</h1>
 
       {/* Removed once real predictions ship — see docs/PROJECT_PLAN.md ML pipeline slice. */}
-      <p className="riskmap__provenance-banner" role="status">
+      <p className="riskmap__provenance-banner" role="status" data-testid="risk-provenance-banner">
         Risk scores shown are placeholder values. Live model predictions arrive with the
         prediction pipeline.
       </p>
 
-      <div className="riskmap__controls">
+      <div className="riskmap__controls" data-testid="risk-horizon-toggle">
         <span className="riskmap__controls-label">Horizon</span>
         {HORIZON_OPTIONS.map((option) => (
           <button
@@ -76,9 +76,9 @@ export default function RiskMap() {
       )}
 
       <div className="riskmap__layout">
-        <div className="riskmap__map" ref={containerRef} data-testid="riskmap-container" />
+        <div className="riskmap__map" ref={containerRef} data-testid="risk-map-container" />
 
-        <aside className="riskmap__legend" aria-label="Risk level legend">
+        <aside className="riskmap__legend" aria-label="Risk level legend" data-testid="risk-legend">
           <h2 className="riskmap__legend-title">Legend</h2>
           <ul className="riskmap__legend-list">
             {RISK_LEVEL_ORDER.map((level) => {
@@ -105,7 +105,7 @@ export default function RiskMap() {
       </div>
 
       {selectedRegionId ? (
-        <section className="riskmap__panel" aria-label="Region risk detail">
+        <section className="riskmap__panel" aria-label="Region risk detail" data-testid="risk-detail-panel">
           {regionRisk.isLoading ? (
             <p data-testid="status-loading">Loading region detail…</p>
           ) : regionRisk.isError ? (

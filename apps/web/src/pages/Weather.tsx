@@ -50,7 +50,7 @@ export default function Weather() {
           <span className="status-panel__skeleton" aria-hidden="true" />
         </p>
       ) : latest.isError ? (
-        <p className="status-panel__item" data-testid="status-error">
+        <p className="status-panel__item" data-testid="weather-error">
           API: unavailable right now. Please try again later.
         </p>
       ) : sortedRegions.length === 0 ? (
@@ -65,6 +65,7 @@ export default function Weather() {
             </label>
             <select
               id="weather-region-select"
+              data-testid="weather-region-select"
               className="weather__select"
               value={activeRegionCode ?? ''}
               onChange={(event) => setSelectedRegionCode(event?.target?.value ?? null)}
@@ -80,7 +81,7 @@ export default function Weather() {
           <div className="weather__tiles">
             <div className="weather__tile">
               <span className="weather__tile-label">Mean temp</span>
-              <span className="weather__tile-value">
+              <span className="weather__tile-value" data-testid="weather-observed-temp">
                 {formatStat(activeObservation?.tempMeanC ?? null, '°C')}
               </span>
             </div>

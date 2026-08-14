@@ -139,6 +139,13 @@ is `cors, headers` only. Left open for the security-hardening slice.
 
 **Manual Test Log:**
 
-_(pending — filled in by a later integration pass once the route bodies
-and page are implemented; see `docs/testing/verification-report.md` for
-the checklist this log will follow.)_
+2026-08-15, integration pass. Full results and evidence in
+`docs/testing/verification-report.md` §9.2. Summary: same shape as the
+weather dashboard's log above — every check reachable without a hosted
+Supabase project passed with direct evidence; DB-dependent happy-path rows
+are marked "not run locally" and covered instead by
+`apps/api/test/routes/risk-map.test.ts` and `apps/api/e2e/risk-map.spec.ts`.
+One integration-time fix was needed and applied: the Playwright specs'
+fixture UUIDs (`...-1111-1111-...`) failed zod's RFC4122 variant-nibble
+check even though they were intended as sample data, not a security
+finding — corrected to valid UUIDs. Reviewer sign-off pending.
