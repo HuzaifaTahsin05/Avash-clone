@@ -112,13 +112,14 @@ lacking a credential it was never given.
 |---|---|---|---|
 | `CLOUDFLARE_API_TOKEN` | secret | `deploy-web.yml`, `deploy-api.yml` | Any deploy |
 | `CLOUDFLARE_ACCOUNT_ID` | secret | `deploy-web.yml`, `deploy-api.yml` | Any deploy |
-| `SUPABASE_SERVICE_ROLE_KEY` | secret | `deploy-api.yml`, `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | API deploy, all three cron jobs once implemented |
+| `SUPABASE_SERVICE_ROLE_KEY` | secret | `deploy-api.yml`, `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | API deploy, weather-ingest cron; the other two cron jobs once implemented |
 | `SUPABASE_JWT_SECRET` | secret | `deploy-api.yml` | API deploy |
 | `GEMINI_API_KEY` | secret | `deploy-api.yml`, `cron-news-scan.yml` | API deploy, news-scan job |
 | `UPSTASH_REDIS_REST_URL` | secret | `deploy-api.yml` | API deploy |
 | `UPSTASH_REDIS_REST_TOKEN` | secret | `deploy-api.yml` | API deploy |
 | `TURNSTILE_SECRET_KEY` | secret | `deploy-api.yml` | API deploy |
-| `SUPABASE_URL` | secret | `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | Cron jobs once implemented |
+| `SUPABASE_URL` | secret | `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | Weather-ingest cron; the other two cron jobs once implemented |
+| `OPENWEATHERMAP_API_KEY` | secret | `cron-weather-ingest.yml` | Weather-ingest cron — read directly by `scripts/jobs/weather-ingest.ts`, never logged (the key rides in the request query string) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | secret | `cron-batch-predict.yml` | Web Push delivery from the batch predict job |
 | `GITHUB_TOKEN` | built-in | `build-images.yml` | Publishing images to GHCR (no manual setup) |
 | `VITE_PUBLIC_API_BASE_URL` | repository **variable** | `deploy-web.yml` | Building `apps/web` for Pages — the deployed Worker's origin |
@@ -357,12 +358,12 @@ Current scheduled load, assuming a 30-day month:
 | `cron-batch-predict.yml` | daily | ~30 | |
 | `pipeline.yml` | weekly (+ every PR and push to `main`/`dev`) | ~4 scheduled | Fans out to every gate and both image matrices, so a scheduled run is ~15 jobs |
 
-All three cron jobs currently exit at their stub guard without doing any
-work. That guard is deliberately placed **before** toolchain setup and
-dependency installation, so a no-op run bills roughly one minute rather
-than the three-to-five it would cost if it installed first. Do not reorder
-those steps: at ~390 no-op runs per month across the three, the ordering is
-the difference between roughly 400 and roughly 1,600 billed minutes.
+`cron-weather-ingest.yml` now does real work every run. `cron-news-scan.yml`
+and `cron-batch-predict.yml` still exit at their own stub guard without
+doing any work — that guard is deliberately placed **before** toolchain
+setup and dependency installation, so a no-op run bills roughly one minute
+rather than the three-to-five it would cost if it installed first. Do not
+reorder those steps in either still-stubbed workflow.
 
 ### Pausing a workflow — GitHub web UI
 
