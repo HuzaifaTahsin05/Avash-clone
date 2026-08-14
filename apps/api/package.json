@@ -13,6 +13,7 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@avash/geo": "workspace:*",
     "@avash/logger": "workspace:*",
     "@avash/types": "workspace:*",
     "@hono/node-server": "^2.0.12",

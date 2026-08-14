@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { getDistance } from '../index';
+import { getDistance, parseBbox } from '../index';
 
 /**
  * `packages/geo` is a one-line placeholder (`getDistance = () => 0`) —
@@ -17,5 +17,44 @@ describe('getDistance (placeholder — real implementation ships with the alerts
 
   test('current placeholder value is 0', () => {
     expect(getDistance()).toBe(0);
+  });
+});
+
+describe('parseBbox', () => {
+  test('accepts a well-formed box', () => {
+    const result = parseBbox('89.5,22.0,90.5,24.0');
+    expect(result).toEqual({
+      ok: true,
+      bbox: { minLon: 89.5, minLat: 22.0, maxLon: 90.5, maxLat: 24.0 },
+    });
+  });
+
+  test('rejects the wrong arity', () => {
+    expect(parseBbox('89.5,22.0,90.5')).toEqual({ ok: false, reason: 'malformed' });
+    expect(parseBbox('89.5,22.0,90.5,24.0,1')).toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  test('rejects a non-numeric component', () => {
+    expect(parseBbox('89.5,abc,90.5,24.0')).toEqual({ ok: false, reason: 'malformed' });
+    expect(parseBbox('')).toEqual({ ok: false, reason: 'malformed' });
+    expect(parseBbox('NaN,22.0,90.5,24.0')).toEqual({ ok: false, reason: 'malformed' });
+    expect(parseBbox('Infinity,22.0,90.5,24.0')).toEqual({ ok: false, reason: 'malformed' });
+    expect(parseBbox(undefined)).toEqual({ ok: false, reason: 'malformed' });
+    expect(parseBbox(null)).toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  test('rejects inverted min/max', () => {
+    expect(parseBbox('90.5,22.0,89.5,24.0')).toEqual({ ok: false, reason: 'inverted' });
+    expect(parseBbox('89.5,24.0,90.5,22.0')).toEqual({ ok: false, reason: 'inverted' });
+  });
+
+  test('rejects out-of-range latitude', () => {
+    expect(parseBbox('89.5,-95.0,90.5,24.0')).toEqual({ ok: false, reason: 'out-of-range' });
+    expect(parseBbox('89.5,22.0,90.5,95.0')).toEqual({ ok: false, reason: 'out-of-range' });
+  });
+
+  test('rejects a span exceeding BBOX_MAX_SPAN_DEG', () => {
+    expect(parseBbox('0,0,15,5')).toEqual({ ok: false, reason: 'too-large' });
+    expect(parseBbox('0,0,5,15')).toEqual({ ok: false, reason: 'too-large' });
   });
 });

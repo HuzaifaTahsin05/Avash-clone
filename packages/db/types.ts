@@ -145,3 +145,44 @@ export interface NewsItemRow {
   reviewed: boolean;
   created_at: string;
 }
+
+// Read-only views (20260215000009_api_read_views.sql) — PostgREST cannot
+// express PostGIS calls, so these push exactly that into SQL.
+
+export interface RegionWeatherObservationRow {
+  id: number;
+  region_id: string;
+  region_code: string;
+  region_name: string;
+  observed_at: string;
+  temp_mean_c: number | null;
+  temp_min_c: number | null;
+  temp_max_c: number | null;
+  humidity_pct: number | null;
+  precipitation_mm: number | null;
+  source: string | null;
+}
+
+export type RegionLatestWeatherRow = RegionWeatherObservationRow;
+
+export interface RegionIngestTargetRow {
+  region_id: string;
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+}
+
+export interface RegionRiskGeojsonRow {
+  region_id: string;
+  region_name: string;
+  risk_score: number;
+  risk_level: RiskLevel;
+  horizon_weeks: 2 | 4;
+  generated_at: string;
+  geometry: GeoJSONMultiPolygon;
+  min_lon: number;
+  min_lat: number;
+  max_lon: number;
+  max_lat: number;
+}

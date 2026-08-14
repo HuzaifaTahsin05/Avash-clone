@@ -15,6 +15,7 @@
   "dependencies": {
     "@avash/types": "workspace:*",
     "@tanstack/react-query": "^5.51.23",
+    "leaflet": "^1.9.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^6.26.1",
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@avash/eslint-config": "workspace:*",
     "@playwright/test": "^1.46.1",
+    "@types/leaflet": "^1.9.12",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",

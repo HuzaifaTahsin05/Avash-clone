@@ -14,8 +14,15 @@ import type { Bindings } from '../types';
  * that REST endpoint sits in front of on Supabase's side, so no
  * long-lived connection is held by the Worker (docs/standards/backend.md).
  */
-export function createSupabaseAdmin(env: Bindings): SupabaseClient {
+/**
+ * `options.fetch` lets route tests inject a fake PostgREST double instead
+ * of hitting a live database — `compose.yaml` runs no local PostgREST, and
+ * `@cloudflare/vitest-pool-workers` gives module mocking too narrow a
+ * surface to lean on. Works identically in workerd and Node.
+ */
+export function createSupabaseAdmin(env: Bindings, options?: { fetch?: typeof fetch }): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
+    ...(options?.fetch ? { global: { fetch: options.fetch } } : {}),
   });
 }

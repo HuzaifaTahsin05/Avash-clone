@@ -5,6 +5,8 @@ import { requestId } from './middleware/request-id';
 import { securityHeaders } from './middleware/security-headers';
 import { corsMiddleware } from './middleware/cors';
 import { health } from './routes/health';
+import { weather } from './routes/weather';
+import { riskMap, riskDetail } from './routes/risk-map';
 
 const app = new Hono<AppEnv>();
 
@@ -22,6 +24,12 @@ app.get('/', (c) =>
 );
 
 app.route('/health', health);
+// Public reads, cors+headers only — no rate-limit middleware (§6 amendment;
+// the §6 discrepancy between the 60/min claim and this chain is flagged,
+// not resolved, pending the security-hardening slice).
+app.route('/api/weather', weather);
+app.route('/api/risk-map', riskMap);
+app.route('/api/risk', riskDetail);
 
 app.notFound((c) => c.json(buildGenericErrorBody(c.get('requestId')), 404));
 

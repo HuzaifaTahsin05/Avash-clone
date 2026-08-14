@@ -42,6 +42,16 @@ only once the constant is actually wired into the code location listed.
 | `API_IMAGE_BASE` | `node:20.17.0-alpine3.20` | `apps/api/Dockerfile` (both stages) | build + runtime base for the API image | implemented |
 | `APP_CONTAINER_PORTS` | web 8080, api 8787 (in-container) | `apps/web/docker/default.conf.template`, `apps/api/server/node-server.ts`, `compose.yaml` | fixed in-container ports; host ports overridable via `WEB_PORT`/`API_PORT` | implemented |
 | `CONTAINER_REGISTRY` | `ghcr.io/<owner>/avash-web`, `ghcr.io/<owner>/avash-api` | `.github/workflows/build-images.yml` | published image names; `sha-<short>` tags, plus `latest` on `main` | implemented |
+| `WEATHER_CACHE_TTL_S` | `s-maxage=900, swr=1800` | `apps/api/src/routes/weather.ts` | edge cache for weather reads; 15 min against a 3 h ingest cadence never serves a value the source could have refreshed | documented |
+| `WEATHER_HISTORY_WINDOW_DAYS` | 14 | `apps/api/src/routes/weather.ts` | dashboard history window; matches the 14-day rolling features in §5.1 so the chart shows what the model will consume | documented |
+| `WEATHER_INGEST_REQUEST_SPACING_MS` | 1100 | `scripts/jobs/weather-ingest.ts` | paces OpenWeatherMap calls under the free tier's 60/min ceiling | documented |
+| `WEATHER_INGEST_MAX_RETRIES` | 3 | `scripts/jobs/weather-ingest.ts` | per-region retry budget on 429/5xx before that region is skipped | documented |
+| `BBOX_MAX_SPAN_DEG` | 10 | `packages/geo/bbox.ts` | rejects an absurd viewport before it becomes a full-table scan | documented |
+| `MAP_GEOMETRY_SIMPLIFY_TOLERANCE_DEG` | 0.001 | `packages/db/supabase/migrations/20260215000009_api_read_views.sql` | polygon simplification in the map read view; ~100 m at this latitude, invisible at the zoom levels the map serves | documented |
+| `RISK_MAP_DEFAULT_HORIZON_WEEKS` | 2 | `packages/types/ml.ts` | horizon the map opens on when `?horizon=` is absent | documented |
+| `STUB_MODEL_VERSION` | `stub-0.0.0` | `packages/types/ml.ts` | sentinel marking seeded placeholder predictions; the real pipeline writes a semver and this value disappears | documented |
+| `MAP_DEFAULT_CENTER` | `[23.78, 90.40]` | `apps/web/src/features/map/tileLayer.ts` | initial map center (Dhaka) | documented |
+| `MAP_DEFAULT_ZOOM` | 7 | `apps/web/src/features/map/tileLayer.ts` | initial zoom — all seeded regions visible in one view | documented |
 
 `CORS_ALLOWED_ORIGINS`'s value in `apps/api/wrangler.toml` is currently
 the placeholder `https://avash.pages.dev` — no real Cloudflare Pages
@@ -50,7 +60,7 @@ project domain has been assigned yet. Update all three `[vars]` blocks in
 real domain exists; nothing else needs to change since the code reads the
 vars, never a hardcoded literal.
 
-That is 32 rows covering all 33 named constants from §14 — one row,
+That is 42 rows covering all 43 named constants from §14 — one row,
 `MIN_RECALL_TARGET`/`MIN_PRECISION_TARGET`, carries two names, matching
 how §14 itself pairs them. (Rows whose *value* is a pair, such as the
 per-window rate limits and `PREDICTION_HORIZONS_WEEKS`, are one constant
