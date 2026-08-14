@@ -491,6 +491,8 @@ All routes mounted in `apps/api/src/index.ts`. Every request passes through `mid
 
 | Method & Path | Auth | Middleware Chain | Rate Limit | Purpose |
 |---|---|---|---|---|
+| `GET /api/weather/latest?regionCode=` | public | cors, headers | 60/min/IP | Reads `region_latest_weather`, `Cache-Control: s-maxage=900, stale-while-revalidate=1800` |
+| `GET /api/weather/history?regionCode=&days=` | public | cors, headers | 60/min/IP | Reads `region_weather_observations`, same cache header as `latest` |
 | `GET /api/risk-map?bbox=` | public | cors, headers | 60/min/IP | Reads `region_risk_summary`, `Cache-Control: s-maxage=300, stale-while-revalidate=600` |
 | `GET /api/risk/:regionId` | public | cors, headers | 60/min/IP | Region drill-down incl. `top_factors` |
 | `GET /api/resources/hospitals?bbox=` | public | cors, headers | 60/min/IP | PostGIS bbox query (initial paint; live updates via Realtime, ADR-010) |
@@ -501,6 +503,24 @@ All routes mounted in `apps/api/src/index.ts`. Every request passes through `mid
 | `POST /api/symptom-check` | public | cors, headers, rate-limit, quota-guard | 10/min/IP, 50/day/IP | Gemini structuring → deterministic rule engine, no PII persisted |
 | `POST /api/alerts/subscribe` | authenticated | cors, headers, auth (JWT), rate-limit | 5/min/user | Upsert `alert_subscriptions` |
 | `POST /api/alerts/push-subscription` | authenticated | cors, headers, auth (JWT) | 5/min/user | Registers browser Push subscription (`push_subscriptions`) |
+
+**§6 amendment — weather routes.** `GET /api/weather/latest` and
+`GET /api/weather/history` were added above because this section predates
+§13's requirement for a weather dashboard and originally listed no weather
+endpoint at all; the dashboard cannot ship without one. No `GET /api/regions`
+route was added alongside them: the region selector derives its options
+from the `latest` payload, which already carries `regionCode` and
+`regionName`, so a separate regions endpoint would be a second source of
+truth for the same list.
+
+**Open item — rate-limit column disagreement (flagged, not resolved).**
+Every public `GET` row above lists `60/min/IP` in the Rate Limit column
+while its Middleware Chain column reads only `cors, headers` — no
+`rate-limit` entry. The two columns disagree, and this predates the
+weather rows; the weather and risk-map/risk-detail routes implement the
+middleware chain as written (no Upstash call on these read paths) rather
+than resolve the discrepancy here. It is left for a decision during the
+security-hardening slice (§13, slice 9).
 
 **No `/api/jobs/*` endpoints exist.** Background jobs (weather ingest, batch predict, news scan) run as GitHub Actions workflows connecting **directly** to Supabase with the service-role key stored as a GH secret — never exposed as an invokable HTTP endpoint, removing an entire class of forged-trigger attack (ADR-007).
 
