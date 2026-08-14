@@ -19,9 +19,9 @@ test.describe('accessibility smoke', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-    // The scaffold has no interactive controls yet (no nav, no links, no
-    // buttons) — this proves Tab is inert rather than trapped, so the page
-    // is safe to extend with real controls later without hidden focus bugs.
+    // The navbar puts real interactive controls (brand link, nav links)
+    // ahead of the page content — tabbing through them must not throw or
+    // trap focus before it reaches the rest of the page.
     for (let i = 0; i < 5; i += 1) {
       await page.keyboard.press('Tab');
     }
