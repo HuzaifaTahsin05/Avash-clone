@@ -198,7 +198,9 @@ values**. The names stay identical so the workflow needs no branching.
 **Add environment secret**.
 
 **`gh` CLI** — the `--env` flag is what makes it an environment secret
-rather than a repository secret:
+rather than a repository secret. This list is exactly `deploy-api.yml`'s
+`secrets:` block (`deploy-web.yml` only needs the first two) — nothing
+more:
 
 ```bash
 # ---- preview ----
@@ -206,30 +208,39 @@ gh secret set CLOUDFLARE_API_TOKEN       --env preview
 gh secret set CLOUDFLARE_ACCOUNT_ID      --env preview
 gh secret set SUPABASE_SERVICE_ROLE_KEY  --env preview
 gh secret set SUPABASE_JWT_SECRET        --env preview
-gh secret set SUPABASE_URL               --env preview
 gh secret set GEMINI_API_KEY             --env preview
 gh secret set UPSTASH_REDIS_REST_URL     --env preview
 gh secret set UPSTASH_REDIS_REST_TOKEN   --env preview
 gh secret set TURNSTILE_SECRET_KEY       --env preview
-gh secret set VAPID_PUBLIC_KEY           --env preview
-gh secret set VAPID_PRIVATE_KEY          --env preview
 
 # ---- production ----  (same names, different values)
 gh secret set CLOUDFLARE_API_TOKEN       --env production
 gh secret set CLOUDFLARE_ACCOUNT_ID      --env production
 gh secret set SUPABASE_SERVICE_ROLE_KEY  --env production
 gh secret set SUPABASE_JWT_SECRET        --env production
-gh secret set SUPABASE_URL               --env production
 gh secret set GEMINI_API_KEY             --env production
 gh secret set UPSTASH_REDIS_REST_URL     --env production
 gh secret set UPSTASH_REDIS_REST_TOKEN   --env production
 gh secret set TURNSTILE_SECRET_KEY       --env production
-gh secret set VAPID_PUBLIC_KEY           --env production
-gh secret set VAPID_PRIVATE_KEY          --env production
 ```
 
 Each command prompts for the value on stdin. **Do not** pass values with
 `--body` — that writes the secret into your shell history.
+
+**`SUPABASE_URL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` do not go here.**
+`deploy-api.yml` never declares them as inputs — they belong to
+`cron-weather-ingest.yml`/`cron-batch-predict.yml`/`cron-news-scan.yml`
+only, which stay at **repository** scope by design (`docs/ci-cd.md` §
+Required secrets and repository variables — the cron carve-out). Adding
+environment copies of them here would be dead weight no job reads, and
+would make Step 6c below look safe to delete the repository copy that the
+crons actually need.
+
+**`SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` are dual-scope, not a
+duplicate.** Both are read by `deploy-api.yml` at environment scope *and*
+by one or more cron workflows at repository scope — two different
+consumers, so both copies are real and Step 6c must not delete the
+repository one for either name.
 
 Verify names only (values are never retrievable, by design):
 
@@ -365,20 +376,33 @@ go. Still do a real Step 8 dry run on both paths before trusting either
 for a production deploy; the schema being valid confirms the workflow
 *parses*, not that the secrets it reads are the ones you expect.
 
-**c. Delete the repository-scoped copies** — but only after Step 8's
-verification passes on both branches:
+**c. Delete the repository-scoped copies — of only the six that are
+env-scope-exclusive** — but only after Step 8's verification passes on
+both branches:
 
 ```bash
 gh secret delete CLOUDFLARE_API_TOKEN
 gh secret delete CLOUDFLARE_ACCOUNT_ID
-# ... and each of the others
+gh secret delete SUPABASE_JWT_SECRET
+gh secret delete UPSTASH_REDIS_REST_URL
+gh secret delete UPSTASH_REDIS_REST_TOKEN
+gh secret delete TURNSTILE_SECRET_KEY
 gh variable delete PRODUCTION_API_ORIGIN
 gh variable delete PREVIEW_API_ORIGIN
 ```
 
-Leaving them in place is not harmless: a repository secret is a silent
-fallback that makes a misconfigured environment look like it works, which
-is precisely the failure this whole exercise exists to remove.
+**Do not** delete the repository-scoped `SUPABASE_SERVICE_ROLE_KEY` or
+`GEMINI_API_KEY` — the cron workflows read those at repository scope and
+have no environment copy to fall back to. Do not delete `SUPABASE_URL`,
+`VAPID_PUBLIC_KEY`, or `VAPID_PRIVATE_KEY` at all — they were never
+duplicated into an environment in Step 4 because no environment-scoped
+job reads them; their only copy is, and stays, the repository one.
+
+Leaving the six above in place is not harmless: a repository secret is a
+silent fallback that makes a misconfigured environment look like it
+works, which is precisely the failure this whole exercise exists to
+remove. Deleting the dual-scope or cron-only names, on the other hand,
+breaks a job that was never part of this migration.
 
 ## Step 7 — Scope the credentials at the provider
 

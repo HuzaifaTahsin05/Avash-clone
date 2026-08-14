@@ -1,15 +1,17 @@
 # Cloudflare Pages custom headers (docs/PROJECT_PLAN.md §7.4).
-# connect-src now names the real apps/api Worker (matching the
-# env.production block in apps/api/wrangler.toml — name="avash-api-production").
-# The value below is still the placeholder workers.dev origin until a real
-# Cloudflare account subdomain / custom domain is assigned (same TBD status
-# as CORS_ALLOWED_ORIGINS in docs/constants-registry.md) — update both
-# together, in the same change, once the real domain exists. No Gemini
-# domain appears here: the browser never calls Gemini directly (§7.4).
-# img-src additionally allows the OSM tile host (ADR-013, MAP_TILE_URL_TEMPLATE)
+# connect-src names the real apps/api Worker origin — the actual
+# *.workers.dev hostname Cloudflare assigned on deploy (account subdomain
+# + Worker name, matching the env.production block in
+# apps/api/wrangler.toml — name="avash-api-production"), not just the
+# Worker name. Keep this equal to VITE_PUBLIC_API_BASE_URL (the
+# production GitHub Environment variable apps/web is built with) — this
+# file has no build-time substitution, so a change to that origin (e.g. a
+# custom domain later) must be hand-applied here too. No Gemini domain
+# appears here: the browser never calls Gemini directly (§7.4). img-src
+# additionally allows the OSM tile host (ADR-013, MAP_TILE_URL_TEMPLATE)
 # -- raster tiles are <img> requests, so they belong in img-src, not connect-src.
 /*
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https://avash-api-production.workers.dev; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org;
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://avash-api-production.galibhabibullah786.workers.dev; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org;
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY

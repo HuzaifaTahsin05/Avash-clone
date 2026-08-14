@@ -111,6 +111,29 @@ jobs:
             echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set — skipping deploy. See docs/ci-cd.md."
           fi
 
+      - name: Resolve CORS override flags
+        id: cors-flags
+        # CORS_ALLOWED_ORIGINS / CORS_PREVIEW_ORIGIN_SUFFIX are non-secret
+        # deploy-time config (docs/ci-cd.md § Required secrets and
+        # repository variables); when set as a GitHub Environment or
+        # repository variable of the same name, they override
+        # wrangler.toml's local-dev fallback via `wrangler deploy --var`.
+        # Left unset, no flag is emitted and wrangler.toml's committed
+        # placeholder still applies — never overridden with an empty
+        # string, which would deny every origin.
+        env:
+          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+          CORS_PREVIEW_ORIGIN_SUFFIX: ${{ vars.CORS_PREVIEW_ORIGIN_SUFFIX }}
+        run: |
+          args=""
+          if [ -n "$CORS_ALLOWED_ORIGINS" ]; then
+            args="$args --var CORS_ALLOWED_ORIGINS:$CORS_ALLOWED_ORIGINS"
+          fi
+          if [ -n "$CORS_PREVIEW_ORIGIN_SUFFIX" ]; then
+            args="$args --var CORS_PREVIEW_ORIGIN_SUFFIX:$CORS_PREVIEW_ORIGIN_SUFFIX"
+          fi
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to Cloudflare Workers
         if: steps.cf-check.outputs.configured == 'true'
         uses: cloudflare/wrangler-action@v3
@@ -118,7 +141,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: deploy --env ${{ inputs.wrangler_env }}
+          command: deploy --env ${{ inputs.wrangler_env }} ${{ steps.cors-flags.outputs.args }}
           secrets: |
             SUPABASE_SERVICE_ROLE_KEY
             SUPABASE_JWT_SECRET
