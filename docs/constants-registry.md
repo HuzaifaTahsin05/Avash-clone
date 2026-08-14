@@ -53,12 +53,28 @@ only once the constant is actually wired into the code location listed.
 | `MAP_DEFAULT_CENTER` | `[23.78, 90.40]` | `apps/web/src/features/map/tileLayer.ts` | initial map center (Dhaka) | implemented |
 | `MAP_DEFAULT_ZOOM` | 7 | `apps/web/src/features/map/tileLayer.ts` | initial zoom — all seeded regions visible in one view | implemented |
 
-`CORS_ALLOWED_ORIGINS`'s value in `apps/api/wrangler.toml` is currently
-the placeholder `https://avash.pages.dev` — no real Cloudflare Pages
-project domain has been assigned yet. Update all three `[vars]` blocks in
-`wrangler.toml` (top-level, `env.preview`, `env.production`) once the
-real domain exists; nothing else needs to change since the code reads the
-vars, never a hardcoded literal.
+`CORS_ALLOWED_ORIGINS`'s value in `apps/api/wrangler.toml` is
+`https://avash.pages.dev` — the real Cloudflare Pages project domain
+(`avash`, production branch `main`), no longer a placeholder.
+`wrangler.toml`'s `[vars]` blocks are the local-dev/manual-deploy
+fallback only: `deploy-api.yml` overrides both `CORS_ALLOWED_ORIGINS` and
+`CORS_PREVIEW_ORIGIN_SUFFIX` at deploy time via `wrangler deploy --var`,
+sourced from a same-named GitHub Environment or repository variable
+(`docs/ci-cd.md` § Required secrets and repository variables), which is
+unset today — the committed fallback is what actually deploys, and it
+happens to already be the real domain. If a custom domain replaces
+`avash.pages.dev` later, either set that GitHub variable (no commit
+needed) or update all three `[vars]` blocks in `wrangler.toml` for the
+local-dev default — nothing else needs to change since the code reads
+the vars, never a hardcoded literal. The same real origin must be kept in
+sync by hand in `apps/web/public/_headers`'s `connect-src` (no build-time
+substitution there — Cloudflare Pages only reads that file as static
+config) and, for the Docker image path, is substituted automatically from
+`VITE_PUBLIC_API_BASE_URL` into `apps/web/docker/security-headers.conf.template`.
+`CORS_PREVIEW_ORIGIN_SUFFIX` is always a bare suffix (e.g.
+`avash.pages.dev`), never a glob like `*.avash.pages.dev` —
+`apps/api/src/config/cors.ts` builds the subdomain wildcard itself and
+escapes this value as a literal string.
 
 That is 42 rows covering all 43 named constants from §14 — one row,
 `MIN_RECALL_TARGET`/`MIN_PRECISION_TARGET`, carries two names, matching

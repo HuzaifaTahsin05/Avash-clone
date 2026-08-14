@@ -628,11 +628,14 @@ For an environment that has never been deployed to, in this order:
 ## Status
 
 The commands in this document are written against the deploy paths that
-`deploy-web.yml` and `deploy-api.yml` already use, but **no production
-Cloudflare project, Supabase project, or domain exists yet** — the origins
-above are placeholders (`docs/ci-cd.md` § `PUBLIC_API_BASE_URL` — a known
-configuration gap). Database, job, and ML sections describe services whose
-vertical slices have not shipped; they are written now so that the first
-person to deploy them is not writing the runbook under pressure. Confirm
-each command against the current tooling version before relying on it in
-an incident.
+`deploy-web.yml` and `deploy-api.yml` already use. The production
+Cloudflare Pages project (`avash`, at `avash.pages.dev`) and the
+production Worker (`avash-api-production`) now exist and are live —
+neither origin above is a placeholder for production anymore. The
+`preview` side (`avash-api-preview`, the `dev`-branch Pages deployment)
+has not had a first manual deploy yet, so treat those origins as
+unverified until Service 1/2's preview steps have actually been run once.
+Database, job, and ML sections describe services whose vertical slices
+had not shipped when this was written; confirm each command against the
+current tooling version and this doc's other sections before relying on
+it in an incident.

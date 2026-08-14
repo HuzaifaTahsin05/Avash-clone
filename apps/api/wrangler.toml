@@ -23,10 +23,15 @@ enabled = true
 #
 # CORS_ALLOWED_ORIGINS / CORS_PREVIEW_ORIGIN_SUFFIX (§14, docs/constants-registry.md)
 # are deploy-time config, not secrets — they're the public Cloudflare
-# Pages domain. TBD: placeholder "avash.pages.dev" until the real
-# project domain is assigned; update here (all three [vars] blocks) and
-# nowhere else — apps/api/src/config/cors.ts reads these, never a
-# hardcoded literal.
+# Pages domain. The values below are the LOCAL-DEV/MANUAL-DEPLOY FALLBACK
+# only: `deploy-api.yml` overrides both with `wrangler deploy --var`,
+# sourced from the `CORS_ALLOWED_ORIGINS`/`CORS_PREVIEW_ORIGIN_SUFFIX`
+# GitHub Environment/repository variables (docs/ci-cd.md § Required
+# secrets and repository variables), so the real domain can be set/changed
+# on GitHub without a commit here. CORS_PREVIEW_ORIGIN_SUFFIX is a bare
+# suffix, never a glob — apps/api/src/config/cors.ts builds the
+# `[a-z0-9-]+.` wildcard itself and escapes this value as a literal, so a
+# "*" in it matches nothing.
 CORS_ALLOWED_ORIGINS = "https://avash.pages.dev"
 CORS_PREVIEW_ORIGIN_SUFFIX = "avash.pages.dev"
 

@@ -198,6 +198,8 @@ lacking a credential it was never given.
 | `PRODUCTION_API_ORIGIN` | repository **variable** | `deploy-api.yml` | Post-deploy smoke test target for `main` |
 | `PREVIEW_API_ORIGIN` | repository **variable** | `deploy-api.yml` | Post-deploy smoke test target for `dev` — the `avash-api-preview` Worker's origin |
 | `PUBLIC_API_BASE_URL` | repository **variable** | `build-images.yml` | Build arg for the *published* web image — see the gap noted below |
+| `CORS_ALLOWED_ORIGINS` | repository **variable**, optional | `deploy-api.yml` | Overrides `apps/api/wrangler.toml`'s fallback via `wrangler deploy --var`; unset means the committed value still deploys (§14, `docs/constants-registry.md`). Same value for `preview` and `production` today, so repository scope — not per-environment — is correct |
+| `CORS_PREVIEW_ORIGIN_SUFFIX` | repository **variable**, optional | `deploy-api.yml` | Same mechanism and scope as above — a bare domain suffix, never a glob (`apps/api/src/config/cors.ts` builds the subdomain wildcard itself) |
 
 Every server-only value here matches `docs/security/secrets-matrix.md`
 exactly — this table is "where each one is configured in CI," that
@@ -271,11 +273,16 @@ scope** is the second choice, and it is mid-migration:
 
 - **The `preview` / `production` GitHub Environments, the branch
   policies, the required reviewer on `production`, and the workflow-level
-  `environment:` wiring all exist already** — `pipeline.yml`'s
-  `deploy-web` / `deploy-api` jobs declare `environment:`, and
-  `secrets: inherit` is gone in favor of an explicit per-secret list. See
-  `docs/security/github-environments.md` § Current status for exactly
-  what's done and what's still outstanding.
+  `environment:` wiring all exist already** — `deploy-web.yml` and
+  `deploy-api.yml`'s own jobs declare `environment: ${{ inputs.environment
+  }}`, and `pipeline.yml`'s `deploy-web` / `deploy-api` jobs resolve that
+  environment name and pass it down via `with:`, but do **not** declare
+  `environment:` themselves — GitHub's schema rejects `environment:` on
+  any job that also has `uses:` (a reusable-workflow call). See
+  `docs/security/github-environments.md` § Step 6 for that constraint and
+  the "Corrected" note explaining the failure mode it replaced.
+  `secrets: inherit` is gone from `pipeline.yml` in favor of an explicit
+  per-secret list.
 - **What's still outstanding is the credentials themselves.** Nothing has
   been set at environment scope yet — no second Cloudflare token, no
   preview Supabase/Upstash/Gemini/Turnstile project. Until an
@@ -313,6 +320,7 @@ gh secret set UPSTASH_REDIS_REST_URL
 gh secret set UPSTASH_REDIS_REST_TOKEN
 gh secret set TURNSTILE_SECRET_KEY
 gh secret set SUPABASE_URL
+gh secret set OPENWEATHERMAP_API_KEY
 gh secret set VAPID_PUBLIC_KEY
 gh secret set VAPID_PRIVATE_KEY
 
@@ -327,6 +335,11 @@ gh variable set VITE_PUBLIC_VAPID_PUBLIC_KEY --body "<public-half-of-the-vapid-k
 gh variable set PRODUCTION_API_ORIGIN --body "https://your-api.example.workers.dev"
 gh variable set PREVIEW_API_ORIGIN --body "https://avash-api-preview.<subdomain>.workers.dev"
 gh variable set PUBLIC_API_BASE_URL --body "https://your-api.example.workers.dev"
+
+# Optional — unset means apps/api/wrangler.toml's committed [vars] value
+# deploys unchanged (docs/constants-registry.md § CORS_ALLOWED_ORIGINS).
+gh variable set CORS_ALLOWED_ORIGINS --body "https://avash.pages.dev"
+gh variable set CORS_PREVIEW_ORIGIN_SUFFIX --body "avash.pages.dev"
 ```
 
 **Security note — widen the domain restriction before copying.**
