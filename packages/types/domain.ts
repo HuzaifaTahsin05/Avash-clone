@@ -17,4 +17,8 @@ export type {
   NewsItemRow as NewsItem,
   GeoJSONPoint,
   GeoJSONMultiPolygon,
+  RegionWeatherObservationRow,
+  RegionLatestWeatherRow,
+  RegionIngestTargetRow,
+  RegionRiskGeojsonRow,
 } from '@avash/db';
