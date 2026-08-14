@@ -55,7 +55,7 @@ passed down as workflow inputs. No downstream job re-derives it from
 | Workflow | Triggers | Purpose |
 |---|---|---|
 | `pipeline.yml` | PR, push to `main`/`dev`, weekly, manual | **The entrypoint.** Composes every stage below and owns all sequencing, concurrency and branch routing |
-| `ci.yml` | called | Gates as concurrent jobs: `lint`, `typecheck`, `static-analysis`, `test`, `build` → `e2e-web`, plus `api-container-parity` and `postgis-service` (§11) |
+| `ci.yml` | called | Gates as concurrent jobs: `lint`, `typecheck`, `static-analysis`, `test`, `e2e-api`, `build` → `e2e-web`, plus `api-container-parity` and `postgis-service` (§11) |
 | `codeql.yml` | called | SAST across `javascript-typescript` and `python` — see § The SAST gate |
 | `build-images.yml` | called | hadolint + build + Trivy + smoke test + publish for `apps/web`/`apps/api` images (ADR-012) |
 | `docker-image-scan.yml` | called | hadolint + Trivy on the ML image (ADR-011) |
@@ -442,18 +442,25 @@ repository inactivity** (no commits). If the cron jobs stop firing after a
 quiet period, they were not deleted — re-enable them from the Actions tab.
 A run triggered manually does not reset that timer; a commit does.
 
-## Downloading a failed Playwright run's report and traces
+## Downloading test artifacts
 
-1. Open the failed run under the **Actions** tab.
-2. `ci.yml`'s `e2e-web` job uploads `playwright-report-web-<sha>` as an
-   artifact only `if: failure()` — it will not exist on a green run.
+1. Open the run under the **Actions** tab.
+2. `ci.yml`'s `test` job uploads a `coverage-<sha>` artifact **on every
+   run**, pass or fail — `pnpm test:coverage`'s HTML report
+   (`docs/standards/testing.md` § Coverage). `e2e-web` and `e2e-api` each
+   upload their own `playwright-report-*-<sha>` artifact, but only
+   `if: failure()` — it will not exist on a green run.
 3. Download the artifact zip from the run summary page (bottom of the
    page, **Artifacts** section) or via `gh run download <run-id>`.
-4. Unzip it and open `playwright-report/index.html` in a browser — it
-   includes the trace viewer for every failed spec, with screenshots and
-   the full network/console log at the point of failure.
-5. `apps/api` and `packages/*` specs use no browser fixture and produce no
-   trace; a failure there is diagnosed from the job log directly.
+4. For a Playwright report: unzip and open `playwright-report/index.html`
+   in a browser — it includes the trace viewer for every failed spec, with
+   screenshots and the full network/console log at the point of failure.
+   `apps/api`'s `e2e-api` suite uses the `request` fixture, not `page`, so
+   its report has no trace/screenshots — a failure there is diagnosed from
+   the job log and the request/response bodies Playwright prints inline.
+5. For the coverage artifact: unzip and open `coverage/index.html` for the
+   full per-file breakdown, or read `coverage/coverage-summary.json` for
+   the raw numbers a script would consume.
 
 ## The container-touching jobs
 
@@ -546,7 +553,7 @@ job fails on a real finding:
 | No internal planning references | `ci.yml` → `static-analysis` job, `scripts/check-internal-refs.mjs` |
 | Client bundle env-var scan | `ci.yml` → `build` job, `scripts/scan-client-env.mjs` against built `apps/web/dist` |
 | Bundle budget (180 KB gzip) | `ci.yml` → `build` job, `scripts/check-bundle-budget.mjs` |
-| Failing Vitest test (`packages/*`, `apps/api` in workerd, `apps/web` hooks) | `ci.yml` → `test` job, `pnpm test` |
+| Failing Vitest test (`packages/*`, `apps/api` in workerd, `apps/web` hooks) | `ci.yml` → `test` job, `pnpm test:coverage` |
 | Vitest coverage threshold miss | `ci.yml` → `test` job, `pnpm test:coverage` (`docs/standards/testing.md` § Coverage) |
 | Failing Playwright spec (`apps/web` browser, `apps/api` contract suite) | `ci.yml` → `e2e-web`, `e2e-api`, `api-container-parity` jobs |
 | Agent-governance drift | `ci.yml` → `static-analysis` job, `scripts/check-agent-sync.mjs` (`docs/standards/agent-compliance.md`) |

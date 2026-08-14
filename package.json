@@ -5,7 +5,9 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
-    "test": "turbo run test",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "turbo run typecheck",
     "db:migrate": "pnpm --filter @avash/db run db:migrate",
     "db:reset": "pnpm --filter @avash/db run db:reset",
@@ -34,13 +36,16 @@
   "devDependencies": {
     "@types/node": "^26.1.2",
     "@types/pg": "^8.21.0",
+    "@vitest/coverage-istanbul": "^3.2.4",
     "eslint": "^10.8.0",
+    "jsdom": "^30.0.1",
     "pg": "^8.23.0",
     "prettier": "^3.3.3",
     "tsx": "^4.23.12",
     "turbo": "latest",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.2.0",
+    "vitest": "^3.2.4",
     "wrangler": "4.118.0"
   },
   "engines": {

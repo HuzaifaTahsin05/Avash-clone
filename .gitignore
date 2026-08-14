@@ -4,6 +4,9 @@ dist-node
 .turbo
 *.log
 
+# Vitest coverage output (docs/standards/testing.md § Coverage)
+coverage/
+
 # pnpm content-addressable store, when it lands inside the repo instead of
 # the global location (e.g. a container with no writable global XDG dir).
 .pnpm-store

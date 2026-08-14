@@ -82,11 +82,6 @@ Supabase, no Gemini, no Upstash call happens anywhere in this request path
   by `vitest.config.ts` and `playwright.config.ts`) never leaks into the
   Worker source's type-checking (`docs/standards/backend.md`).
 
-  *Migration note:* these suites currently run entirely under
-  `@playwright/test` with `.spec.ts` filenames. The split above is the
-  target the test-architecture work moves them to; see the migration
-  status banner in `docs/standards/testing.md`.
-
 **Liveness vs. readiness:** `/health` is a **liveness** probe only — it
 answers "is the Worker running," not "is the database reachable." It
 intentionally has zero external dependencies so the CI pipeline — which is

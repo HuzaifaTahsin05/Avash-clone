@@ -8,10 +8,5 @@
   "exports": {
     ".": "./index.ts"
   },
-  "scripts": {
-    "test": "playwright test"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.46.1"
-  }
+  "scripts": {}
 }

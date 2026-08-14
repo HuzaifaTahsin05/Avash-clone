@@ -19,16 +19,6 @@ process from the outside?** If yes it is end-to-end and belongs to
 Playwright. If no it is unit or integration and belongs to Vitest. That
 line is the whole rule — everything below is its application.
 
-> **Migration status.** This document is the authoritative target. The
-> repository is mid-migration from a Playwright-only arrangement: the
-> `apps/web` end-to-end suite and the `apps/api` dual-runtime contract
-> suite already match what is written here, while the `packages/*` and
-> `apps/api` in-process suites still run under `@playwright/test` and move
-> to Vitest as the test-architecture work lands. Where a config on disk
-> disagrees with this file, this file is what it is being changed to —
-> treat the difference as work outstanding, not as license to write a new
-> suite in the old shape.
-
 ## Why two runners and not one
 
 The repository previously mandated a single runner (`@playwright/test`)
