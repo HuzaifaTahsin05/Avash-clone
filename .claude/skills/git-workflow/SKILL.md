@@ -9,7 +9,7 @@ description: Use before any git or GitHub operation — branching, committing, p
 one, never PR into `main` from anything but `dev`.
 
 ```
-local feat/<slice>  →  local dev  →  gates green locally
+local feat/<slice>  →  squash to one commit  →  local dev  →  gates green locally
    →  push dev to origin  →  Actions green on origin
    →  PR origin/dev → upstream/dev
 ```
@@ -17,6 +17,11 @@ local feat/<slice>  →  local dev  →  gates green locally
 Reset local `dev` to `origin/dev` first if it is stale. Resolve conflicts
 locally, in `dev`, before pushing. If a feature branch already reached a
 remote: close the PR, delete the remote branch, then continue.
+
+Squash the branch's micro-task commits (`git merge --squash <branch>`)
+into one clean Conventional Commit before merging — keep a boundary
+unsquashed only when it's independently worth bisecting later. Default
+behavior, not a step to ask about.
 
 Enforced by a `pre-push` hook and a CI gate. A refusal is correct —
 redirect, never `--no-verify`.
