@@ -38,6 +38,8 @@ on:
         required: false
       CLOUDFLARE_ACCOUNT_ID:
         required: false
+      SUPABASE_URL:
+        required: false
       SUPABASE_SERVICE_ROLE_KEY:
         required: false
       SUPABASE_JWT_SECRET:
@@ -143,6 +145,7 @@ jobs:
           workingDirectory: apps/api
           command: deploy --env ${{ inputs.wrangler_env }} ${{ steps.cors-flags.outputs.args }}
           secrets: |
+            SUPABASE_URL
             SUPABASE_SERVICE_ROLE_KEY
             SUPABASE_JWT_SECRET
             GEMINI_API_KEY
@@ -150,6 +153,7 @@ jobs:
             UPSTASH_REDIS_REST_TOKEN
             TURNSTILE_SECRET_KEY
         env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

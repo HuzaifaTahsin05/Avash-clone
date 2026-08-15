@@ -186,7 +186,7 @@ lacking a credential it was never given.
 | `UPSTASH_REDIS_REST_URL` | secret | `deploy-api.yml` | API deploy |
 | `UPSTASH_REDIS_REST_TOKEN` | secret | `deploy-api.yml` | API deploy |
 | `TURNSTILE_SECRET_KEY` | secret | `deploy-api.yml` | API deploy |
-| `SUPABASE_URL` | secret | `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | Weather-ingest cron; the other two cron jobs once implemented |
+| `SUPABASE_URL` | secret | `deploy-api.yml`, `cron-weather-ingest.yml`, `cron-batch-predict.yml`, `cron-news-scan.yml` | API deploy — `apps/api/src/lib/supabaseAdmin.ts` needs it at runtime exactly like the service-role key, a Worker missing this secret fails every request with "supabaseUrl is required"; also weather-ingest cron, the other two cron jobs once implemented |
 | `OPENWEATHERMAP_API_KEY` | secret | `cron-weather-ingest.yml` | Weather-ingest cron — read directly by `scripts/jobs/weather-ingest.ts`, never logged (the key rides in the request query string) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | secret | `cron-batch-predict.yml` | Web Push delivery from the batch predict job |
 | `GITHUB_TOKEN` | built-in | `build-images.yml` | Publishing images to GHCR (no manual setup) |
