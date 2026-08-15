@@ -128,7 +128,7 @@ Record it).
 | `build-images.yml` | called | hadolint + build + Trivy + smoke test + publish for `apps/web`/`apps/api` images (ADR-012) |
 | `docker-image-scan.yml` | called | hadolint + Trivy on the ML image (ADR-011) |
 | `deploy-web.yml` | called | Cloudflare Pages deploy for `apps/web`; target branch passed in as `pages_branch` |
-| `deploy-api.yml` | called | `wrangler deploy` for `apps/api` + post-deploy smoke test; environment passed in as `wrangler_env` |
+| `deploy-api.yml` | called | `wrangler deploy` for `apps/api` + post-deploy smoke test (`/health` **and** `/health/db`); environment passed in as `wrangler_env` — given to wrangler-action as *both* `--env` on the command and its `environment:` input, because that input alone is what scopes the secret upload (see below) |
 | `cron-weather-ingest.yml` | schedule (every 3h), manual | Runs `scripts/jobs/weather-ingest.ts` directly against Supabase (ADR-007) |
 | `cron-batch-predict.yml` | schedule (every 24h), manual | Runs `ml/serving/predict.py` directly against Supabase (ADR-002, ADR-007) |
 | `cron-news-scan.yml` | schedule (every 6h), manual | Runs `scripts/jobs/news-scan.ts` directly against Supabase (ADR-007) |
@@ -140,6 +140,28 @@ toolchain version is declared there and nowhere else. Splitting the gates into
 concurrent jobs means each one pays for its own install, which is only cheap
 because the pnpm store restores from cache — if that cache stops working, the
 concurrency stops paying for itself.
+
+### Worker secrets are scoped by wrangler-action's `environment:` input
+
+`wrangler deploy --env production` and `wrangler secret bulk` are two
+different calls to two different targets, and `cloudflare/wrangler-action`
+takes the environment for the second one from its **`environment:` input**,
+not from the `--env` you wrote in `command:`. With that input unset the
+action uploads every secret to the top-level Worker declared in
+`apps/api/wrangler.toml` (`avash-api`) while the deploy itself creates
+`avash-api-production` / `avash-api-preview`. The run is green, the log says
+each secret was created, and every request to the Worker that actually
+serves traffic still fails — `supabaseUrl is required` from
+`apps/api/src/lib/supabaseAdmin.ts`, because `env.SUPABASE_URL` is empty
+there. `deploy-api.yml` therefore passes `wrangler_env` in both places; the
+action skips its own `--env` injection when the command already carries one,
+so the flag is not duplicated.
+
+The post-deploy smoke test hits `/health/db` for the same reason. `/health`
+is liveness only — it reads no secret and touches no database, so it stays
+`200` through exactly this failure. `/health/db` builds the service-role
+client and runs a bounded query, so a Worker deployed without its Supabase
+secrets returns `503` there and fails the deploy instead of shipping.
 
 ## Dependency updates
 

@@ -143,6 +143,16 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
+          # `environment` is what scopes the SECRET UPLOAD — wrangler-action
+          # runs `wrangler secret bulk` with `--env <environment>` and, with
+          # this input unset, uploads to the top-level Worker (`avash-api`)
+          # regardless of what `command` targets. That is how SUPABASE_URL
+          # could be "successfully created" in the log while every request to
+          # avash-api-production still threw "supabaseUrl is required."
+          # The action skips its own `--env` injection when the command
+          # already carries one (wranglerAction.ts: `!command.includes("--env")`),
+          # so the explicit flag below is not duplicated.
+          environment: ${{ inputs.wrangler_env }}
           command: deploy --env ${{ inputs.wrangler_env }} ${{ steps.cors-flags.outputs.args }}
           secrets: |
             SUPABASE_URL
@@ -169,6 +179,7 @@ jobs:
         env:
           API_ORIGIN: ${{ vars[inputs.smoke_test_origin_var] }}
           ORIGIN_VAR_NAME: ${{ inputs.smoke_test_origin_var }}
+          WRANGLER_ENV: ${{ inputs.wrangler_env }}
         run: |
           if [ -z "$API_ORIGIN" ]; then
             echo "::error::$ORIGIN_VAR_NAME repository variable is not set — cannot smoke test the deploy."
@@ -178,5 +189,19 @@ jobs:
           echo "GET $API_ORIGIN/health -> $status"
           if [ "$status" != "200" ]; then
             echo "::error::Post-deploy smoke test failed: /health returned $status, expected 200."
+            exit 1
+          fi
+          # /health is liveness only — it touches neither Supabase nor the
+          # secrets, so it stayed green through the whole "secrets uploaded
+          # to the wrong Worker" outage. /health/db builds the service-role
+          # client and runs a bounded query, so it is the probe that
+          # actually proves SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY landed
+          # on the Worker this deploy targeted. Missing secrets => 503 here
+          # => the deploy fails instead of shipping a Worker that 500s on
+          # every real request.
+          db_status=$(curl -s -o /dev/null -w '%{http_code}' "$API_ORIGIN/health/db")
+          echo "GET $API_ORIGIN/health/db -> $db_status"
+          if [ "$db_status" != "200" ]; then
+            echo "::error::Post-deploy smoke test failed: /health/db returned $db_status, expected 200. The Worker cannot reach Supabase — check that SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY were uploaded to the '$WRANGLER_ENV' Worker environment."
             exit 1
           fi
