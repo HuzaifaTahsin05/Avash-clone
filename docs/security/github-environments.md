@@ -206,6 +206,7 @@ more:
 # ---- preview ----
 gh secret set CLOUDFLARE_API_TOKEN       --env preview
 gh secret set CLOUDFLARE_ACCOUNT_ID      --env preview
+gh secret set SUPABASE_URL               --env preview
 gh secret set SUPABASE_SERVICE_ROLE_KEY  --env preview
 gh secret set SUPABASE_JWT_SECRET        --env preview
 gh secret set GEMINI_API_KEY             --env preview
@@ -216,6 +217,7 @@ gh secret set TURNSTILE_SECRET_KEY       --env preview
 # ---- production ----  (same names, different values)
 gh secret set CLOUDFLARE_API_TOKEN       --env production
 gh secret set CLOUDFLARE_ACCOUNT_ID      --env production
+gh secret set SUPABASE_URL               --env production
 gh secret set SUPABASE_SERVICE_ROLE_KEY  --env production
 gh secret set SUPABASE_JWT_SECRET        --env production
 gh secret set GEMINI_API_KEY             --env production
@@ -227,7 +229,7 @@ gh secret set TURNSTILE_SECRET_KEY       --env production
 Each command prompts for the value on stdin. **Do not** pass values with
 `--body` — that writes the secret into your shell history.
 
-**`SUPABASE_URL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` do not go here.**
+**`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` do not go here.**
 `deploy-api.yml` never declares them as inputs — they belong to
 `cron-weather-ingest.yml`/`cron-batch-predict.yml`/`cron-news-scan.yml`
 only, which stay at **repository** scope by design (`docs/ci-cd.md` §
@@ -236,11 +238,14 @@ environment copies of them here would be dead weight no job reads, and
 would make Step 6c below look safe to delete the repository copy that the
 crons actually need.
 
-**`SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` are dual-scope, not a
-duplicate.** Both are read by `deploy-api.yml` at environment scope *and*
-by one or more cron workflows at repository scope — two different
-consumers, so both copies are real and Step 6c must not delete the
-repository one for either name.
+**`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY` are
+dual-scope, not a duplicate.** All three are read by `deploy-api.yml` at
+environment scope (`apps/api/src/lib/supabaseAdmin.ts` needs
+`SUPABASE_URL` at runtime exactly like the service-role key — a Worker
+secret missing this name fails every request with "supabaseUrl is
+required") *and* by one or more cron workflows at repository scope — two
+different consumers, so all three copies are real and Step 6c must not
+delete the repository one for any of these names.
 
 Verify names only (values are never retrievable, by design):
 
@@ -391,12 +396,13 @@ gh variable delete PRODUCTION_API_ORIGIN
 gh variable delete PREVIEW_API_ORIGIN
 ```
 
-**Do not** delete the repository-scoped `SUPABASE_SERVICE_ROLE_KEY` or
-`GEMINI_API_KEY` — the cron workflows read those at repository scope and
-have no environment copy to fall back to. Do not delete `SUPABASE_URL`,
-`VAPID_PUBLIC_KEY`, or `VAPID_PRIVATE_KEY` at all — they were never
-duplicated into an environment in Step 4 because no environment-scoped
-job reads them; their only copy is, and stays, the repository one.
+**Do not** delete the repository-scoped `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, or `GEMINI_API_KEY` — the cron workflows
+read all three at repository scope and have no environment copy to fall
+back to. Do not delete `VAPID_PUBLIC_KEY` or `VAPID_PRIVATE_KEY` at all —
+they were never duplicated into an environment in Step 4 because no
+environment-scoped job reads them; their only copy is, and stays, the
+repository one.
 
 Leaving the six above in place is not harmless: a repository secret is a
 silent fallback that makes a misconfigured environment look like it
