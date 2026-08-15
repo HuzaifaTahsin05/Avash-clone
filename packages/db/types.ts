@@ -186,3 +186,32 @@ export interface RegionRiskGeojsonRow {
   max_lon: number;
   max_lat: number;
 }
+
+// Resource read surfaces (20260815000012_app_role_and_resource_reads.sql).
+
+export interface HospitalLocationRow {
+  id: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  verified: boolean;
+  updated_at: string;
+  lon: number;
+  lat: number;
+}
+
+export interface BloodWithinRadiusRow {
+  inventory_id: number;
+  hospital_id: string;
+  hospital_name: string;
+  hospital_address: string | null;
+  hospital_phone: string | null;
+  hospital_verified: boolean;
+  hospital_lat: number;
+  hospital_lon: number;
+  blood_group: BloodGroup;
+  units_available: number;
+  platelet_units: number | null;
+  updated_at: string;
+  distance_m: number;
+}

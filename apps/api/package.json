@@ -15,10 +15,13 @@
   "dependencies": {
     "@avash/geo": "workspace:*",
     "@avash/logger": "workspace:*",
+    "@avash/security": "workspace:*",
     "@avash/types": "workspace:*",
     "@hono/node-server": "^2.0.12",
     "@supabase/supabase-js": "^2.112.3",
+    "@upstash/redis": "^1.35.5",
     "hono": "^4.5.11",
+    "jose": "^6.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {

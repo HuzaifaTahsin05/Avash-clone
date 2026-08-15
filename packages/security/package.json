@@ -1,1 +1,8 @@
-{"name": "@avash/security", "version": "1.0.0", "main": "index.ts"}
+{
+  "name": "@avash/security",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@upstash/redis": "^1.35.5"
+  }
+}

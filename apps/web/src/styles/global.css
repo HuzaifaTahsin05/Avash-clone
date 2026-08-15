@@ -361,3 +361,141 @@ body {
 .riskmap__panel-section {
   margin-bottom: var(--space-3);
 }
+
+/* ── Navbar auth slot ────────────────────────────────────────────────── */
+
+.navbar__auth {
+  display: flex;
+  align-items: center;
+}
+
+/* ── Shared form/card/table primitives (decision H) ─────────────────────
+   Phase 1 workers style their own pages with these; no worker adds
+   global styles here — a feature needing more adds its own
+   apps/web/src/features/<name>/<name>.css imported by its own component. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 480px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.field__label {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.field input,
+.field textarea,
+.field select {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+.field__error {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-primary);
+  color: var(--color-text);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.button--secondary {
+  background-color: transparent;
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: 999px;
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-bg);
+  background-color: var(--color-text-muted);
+}
+
+/* Reuses the risk-level fill colors from features/risk/riskLevelBands.ts. */
+.badge--low {
+  background-color: #2e7d5b;
+}
+
+.badge--moderate {
+  background-color: #d9a441;
+}
+
+.badge--high {
+  background-color: #c9702e;
+}
+
+.badge--severe {
+  background-color: #c94a4a;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.alert {
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+}
+
+.alert--error {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}

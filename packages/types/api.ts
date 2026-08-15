@@ -141,3 +141,149 @@ export type LatestWeatherResponse = z.infer<typeof latestWeatherResponseSchema>;
 export type WeatherHistoryResponse = z.infer<typeof weatherHistoryResponseSchema>;
 export type RiskMapResponse = z.infer<typeof riskMapResponseSchema>;
 export type RiskDetailResponse = z.infer<typeof riskDetailResponseSchema>;
+
+// ── Auth / role shared primitives ──────────────────────────────────────────
+
+// BloodGroup and BreedingReportStatus already exist as domain types
+// (packages/db/types.ts, re-exported via ./domain) — these schemas parse
+// the identical unions on the wire without redeclaring the type name.
+export const bloodGroupSchema = z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']);
+export const latitudeSchema = z.number().min(-90).max(90);
+export const longitudeSchema = z.number().min(-180).max(180);
+export const appRoleSchema = z.enum(['moderator', 'admin']);
+
+export type AppRole = z.infer<typeof appRoleSchema>;
+
+// ── Symptom checker (§13 slice 4) ──────────────────────────────────────────
+
+export const SYMPTOM_TEXT_MAX_CHARS = 500;
+
+/** The WHO checklist — the only input the deterministic rule engine ever sees. */
+export const symptomChecklistSchema = z.object({
+  fever: z.boolean(),
+  severeAbdominalPain: z.boolean(),
+  persistentVomiting: z.boolean(),
+  mucosalBleeding: z.boolean(),
+  lethargyOrRestlessness: z.boolean(),
+  liverEnlargement: z.boolean(),
+  fluidAccumulation: z.boolean(),
+  nauseaOrVomiting: z.boolean(),
+  rash: z.boolean(),
+  achesAndPains: z.boolean(),
+  positiveTourniquetTest: z.boolean(),
+  leukopenia: z.boolean(),
+});
+
+export const symptomCheckRequestSchema = z.object({
+  symptomText: z.string().max(SYMPTOM_TEXT_MAX_CHARS).optional(),
+  checklist: symptomChecklistSchema.partial().optional(),
+});
+
+export const triageOutcomeSchema = z.enum(['emergency', 'consult-24h', 'monitor']);
+
+export const symptomCheckResponseSchema = z.object({
+  outcome: triageOutcomeSchema,
+  guidance: z.string(), // fixed server-side copy per outcome, never model text
+  checklist: symptomChecklistSchema,
+  aiAssistAvailable: z.boolean(), // false ⇒ quota tripped or Gemini failed; §7.3 fallback
+  requestId: z.string(),
+});
+
+export type SymptomChecklist = z.infer<typeof symptomChecklistSchema>;
+export type SymptomCheckRequest = z.infer<typeof symptomCheckRequestSchema>;
+export type TriageOutcome = z.infer<typeof triageOutcomeSchema>;
+export type SymptomCheckResponse = z.infer<typeof symptomCheckResponseSchema>;
+
+// ── Breeding-site reports (§13 slice 5) ────────────────────────────────────
+
+export const REPORT_DESCRIPTION_MAX_CHARS = 1000;
+
+export const breedingReportRequestSchema = z.object({
+  lat: latitudeSchema,
+  lng: longitudeSchema,
+  description: z.string().max(REPORT_DESCRIPTION_MAX_CHARS).optional(),
+  photoUrl: z.string().url().optional(),
+  turnstileToken: z.string().min(1),
+});
+
+export const breedingReportStatusSchema = z.enum(['pending', 'verified', 'rejected', 'resolved']);
+
+export const aiValidationSchema = z.object({
+  isPlausible: z.boolean(),
+  category: z.enum(['standing-water', 'container', 'drain', 'construction-site', 'other']),
+  spamLikelihood: z.number().min(0).max(1),
+});
+
+export const breedingReportResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: breedingReportStatusSchema, // always 'pending' on create
+  flaggedForReview: z.boolean(),
+  requestId: z.string(),
+});
+
+export const breedingReportVerifyRequestSchema = z.object({
+  status: z.enum(['verified', 'rejected', 'resolved']), // never back to 'pending'
+  municipalRefId: z.string().max(64).optional(),
+});
+
+export type BreedingReportRequest = z.infer<typeof breedingReportRequestSchema>;
+export type AiValidation = z.infer<typeof aiValidationSchema>;
+export type BreedingReportResponse = z.infer<typeof breedingReportResponseSchema>;
+export type BreedingReportVerifyRequest = z.infer<typeof breedingReportVerifyRequestSchema>;
+
+// ── Hospital / blood resources (§13 slice 6) ───────────────────────────────
+
+export const BLOOD_UNITS_MAX = 500;
+export const RESOURCE_SEARCH_RADIUS_DEFAULT_M = 5000;
+export const RESOURCE_SEARCH_RADIUS_MAX_M = 50000;
+
+export const hospitalDtoSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  address: z.string().nullable(),
+  phone: z.string().nullable(),
+  verified: z.boolean(),
+  lat: latitudeSchema,
+  lng: longitudeSchema,
+});
+
+export const hospitalsResponseSchema = z.object({
+  hospitals: z.array(hospitalDtoSchema), // [] is valid, never null
+  generatedAt: z.string(),
+  requestId: z.string(),
+});
+
+export const bloodSearchQuerySchema = z.object({
+  bloodGroup: bloodGroupSchema,
+  lat: latitudeSchema,
+  lng: longitudeSchema,
+  radiusM: z.number().int().min(500).max(RESOURCE_SEARCH_RADIUS_MAX_M).default(RESOURCE_SEARCH_RADIUS_DEFAULT_M),
+});
+
+export const bloodAvailabilityDtoSchema = z.object({
+  inventoryId: z.number().int(),
+  hospital: hospitalDtoSchema,
+  bloodGroup: bloodGroupSchema,
+  unitsAvailable: z.number().int().min(0),
+  plateletUnits: z.number().int().min(0),
+  distanceM: z.number(),
+  updatedAt: z.string(),
+});
+
+export const bloodSearchResponseSchema = z.object({
+  results: z.array(bloodAvailabilityDtoSchema), // ordered by distanceM ascending
+  generatedAt: z.string(),
+  requestId: z.string(),
+});
+
+export const bloodUpdateRequestSchema = z.object({
+  unitsAvailable: z.number().int().min(0).max(BLOOD_UNITS_MAX),
+  plateletUnits: z.number().int().min(0).max(BLOOD_UNITS_MAX),
+});
+
+export type HospitalDto = z.infer<typeof hospitalDtoSchema>;
+export type HospitalsResponse = z.infer<typeof hospitalsResponseSchema>;
+export type BloodSearchQuery = z.infer<typeof bloodSearchQuerySchema>;
+export type BloodAvailabilityDto = z.infer<typeof bloodAvailabilityDtoSchema>;
+export type BloodSearchResponse = z.infer<typeof bloodSearchResponseSchema>;
+export type BloodUpdateRequest = z.infer<typeof bloodUpdateRequestSchema>;

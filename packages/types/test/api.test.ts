@@ -7,6 +7,18 @@ import {
   weatherHistoryResponseSchema,
   riskMapResponseSchema,
   riskDetailResponseSchema,
+  symptomChecklistSchema,
+  symptomCheckRequestSchema,
+  symptomCheckResponseSchema,
+  breedingReportRequestSchema,
+  breedingReportVerifyRequestSchema,
+  hospitalDtoSchema,
+  bloodSearchQuerySchema,
+  bloodUpdateRequestSchema,
+  SYMPTOM_TEXT_MAX_CHARS,
+  REPORT_DESCRIPTION_MAX_CHARS,
+  BLOOD_UNITS_MAX,
+  RESOURCE_SEARCH_RADIUS_MAX_M,
 } from '../api';
 
 describe('healthResponseSchema — round-trip', () => {
@@ -174,5 +186,175 @@ describe('riskDetailResponseSchema — round-trip', () => {
       predictions: [{ ...valid.predictions[0], riskScore: 1.5 }],
     };
     expect(() => riskDetailResponseSchema.parse(invalid)).toThrow();
+  });
+});
+
+const fullChecklist = {
+  fever: true,
+  severeAbdominalPain: false,
+  persistentVomiting: false,
+  mucosalBleeding: false,
+  lethargyOrRestlessness: false,
+  liverEnlargement: false,
+  fluidAccumulation: false,
+  nauseaOrVomiting: true,
+  rash: true,
+  achesAndPains: false,
+  positiveTourniquetTest: false,
+  leukopenia: false,
+};
+
+describe('symptomChecklistSchema — round-trip', () => {
+  test('accepts a fully populated checklist', () => {
+    expect(() => symptomChecklistSchema.parse(fullChecklist)).not.toThrow();
+  });
+
+  test('rejects a missing field', () => {
+    const { fever: _fever, ...withoutFever } = fullChecklist;
+    expect(() => symptomChecklistSchema.parse(withoutFever)).toThrow();
+  });
+});
+
+describe('symptomCheckRequestSchema — round-trip', () => {
+  test('accepts an empty body (both fields optional)', () => {
+    expect(() => symptomCheckRequestSchema.parse({})).not.toThrow();
+  });
+
+  test('accepts symptomText at the max length', () => {
+    const text = 'a'.repeat(SYMPTOM_TEXT_MAX_CHARS);
+    expect(() => symptomCheckRequestSchema.parse({ symptomText: text })).not.toThrow();
+  });
+
+  test('rejects symptomText over the max length', () => {
+    const text = 'a'.repeat(SYMPTOM_TEXT_MAX_CHARS + 1);
+    expect(() => symptomCheckRequestSchema.parse({ symptomText: text })).toThrow();
+  });
+});
+
+describe('symptomCheckResponseSchema — round-trip', () => {
+  const valid = {
+    outcome: 'monitor',
+    guidance: 'Rest and monitor your symptoms.',
+    checklist: fullChecklist,
+    aiAssistAvailable: true,
+    requestId: 'req-5',
+  };
+
+  test('accepts a well-formed response', () => {
+    expect(() => symptomCheckResponseSchema.parse(valid)).not.toThrow();
+  });
+
+  test('rejects an unknown outcome value', () => {
+    expect(() => symptomCheckResponseSchema.parse({ ...valid, outcome: 'diagnosed' })).toThrow();
+  });
+});
+
+describe('breedingReportRequestSchema — round-trip', () => {
+  const valid = {
+    lat: 23.78,
+    lng: 90.4,
+    description: 'Standing water near the drain.',
+    turnstileToken: 'token-abc',
+  };
+
+  test('accepts a well-formed report', () => {
+    expect(() => breedingReportRequestSchema.parse(valid)).not.toThrow();
+  });
+
+  test('rejects a latitude outside ±90', () => {
+    expect(() => breedingReportRequestSchema.parse({ ...valid, lat: 999 })).toThrow();
+  });
+
+  test('rejects a longitude outside ±180', () => {
+    expect(() => breedingReportRequestSchema.parse({ ...valid, lng: -999 })).toThrow();
+  });
+
+  test('rejects a description over the max length', () => {
+    const description = 'a'.repeat(REPORT_DESCRIPTION_MAX_CHARS + 1);
+    expect(() => breedingReportRequestSchema.parse({ ...valid, description })).toThrow();
+  });
+
+  test('rejects a missing turnstileToken', () => {
+    const { turnstileToken: _turnstileToken, ...withoutToken } = valid;
+    expect(() => breedingReportRequestSchema.parse(withoutToken)).toThrow();
+  });
+});
+
+describe('breedingReportVerifyRequestSchema — round-trip', () => {
+  test('accepts a verified status', () => {
+    expect(() => breedingReportVerifyRequestSchema.parse({ status: 'verified' })).not.toThrow();
+  });
+
+  test('rejects a status of pending (never back to pending)', () => {
+    expect(() => breedingReportVerifyRequestSchema.parse({ status: 'pending' })).toThrow();
+  });
+
+  test('rejects an unknown status', () => {
+    expect(() => breedingReportVerifyRequestSchema.parse({ status: 'archived' })).toThrow();
+  });
+});
+
+describe('hospitalDtoSchema — round-trip', () => {
+  const valid = {
+    id: '11111111-1111-4111-8111-111111111111',
+    name: 'Dhaka Medical College Hospital',
+    address: null,
+    phone: null,
+    verified: true,
+    lat: 23.78,
+    lng: 90.4,
+  };
+
+  test('accepts a well-formed hospital', () => {
+    expect(() => hospitalDtoSchema.parse(valid)).not.toThrow();
+  });
+
+  test('rejects a lat outside ±90', () => {
+    expect(() => hospitalDtoSchema.parse({ ...valid, lat: -91 })).toThrow();
+  });
+});
+
+describe('bloodSearchQuerySchema — round-trip', () => {
+  const valid = { bloodGroup: 'O+', lat: 23.78, lng: 90.4 };
+
+  test('accepts a valid query and defaults radiusM', () => {
+    const parsed = bloodSearchQuerySchema.parse(valid);
+    expect(parsed.radiusM).toBe(5000);
+  });
+
+  test('rejects an unknown blood group', () => {
+    expect(() => bloodSearchQuerySchema.parse({ ...valid, bloodGroup: 'Z+' })).toThrow();
+  });
+
+  test('rejects a radius above the ceiling', () => {
+    expect(() =>
+      bloodSearchQuerySchema.parse({ ...valid, radiusM: RESOURCE_SEARCH_RADIUS_MAX_M + 1 })
+    ).toThrow();
+  });
+});
+
+describe('bloodUpdateRequestSchema — round-trip', () => {
+  test('accepts units within bounds', () => {
+    expect(() =>
+      bloodUpdateRequestSchema.parse({ unitsAvailable: 12, plateletUnits: 4 })
+    ).not.toThrow();
+  });
+
+  test('rejects wildly implausible unit counts', () => {
+    expect(() =>
+      bloodUpdateRequestSchema.parse({ unitsAvailable: 99999, plateletUnits: 4 })
+    ).toThrow();
+  });
+
+  test('rejects negative units', () => {
+    expect(() =>
+      bloodUpdateRequestSchema.parse({ unitsAvailable: -1, plateletUnits: 4 })
+    ).toThrow();
+  });
+
+  test('rejects units above BLOOD_UNITS_MAX', () => {
+    expect(() =>
+      bloodUpdateRequestSchema.parse({ unitsAvailable: BLOOD_UNITS_MAX + 1, plateletUnits: 0 })
+    ).toThrow();
   });
 });

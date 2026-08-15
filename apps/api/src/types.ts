@@ -1,3 +1,5 @@
+import type { AppRole } from '@avash/security';
+
 export interface Bindings {
   /** Project URL — not secret (docs/security/secrets-matrix.md), but read server-side only under this name. */
   SUPABASE_URL: string;
@@ -14,8 +16,15 @@ export interface Bindings {
   CORS_PREVIEW_ORIGIN_SUFFIX: string;
 }
 
+export interface AuthenticatedUser {
+  id: string;
+  email: string | null;
+  role: AppRole | null;
+}
+
 export interface Variables {
   requestId: string;
+  user?: AuthenticatedUser;
 }
 
 export interface AppEnv {

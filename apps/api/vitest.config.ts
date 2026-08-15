@@ -20,6 +20,13 @@ export default defineWorkersConfig({
             CORS_PREVIEW_ORIGIN_SUFFIX: 'avash.pages.dev',
             SUPABASE_URL: '',
             SUPABASE_SERVICE_ROLE_KEY: '',
+            // Test-only values — never a real credential. jwtVerify.test.ts
+            // and auth.test.ts sign fixtures against this same secret.
+            SUPABASE_JWT_SECRET: 'test-jwt-secret-do-not-use-in-production',
+            GEMINI_API_KEY: 'test-gemini-key',
+            UPSTASH_REDIS_REST_URL: 'https://example-upstash-test.invalid',
+            UPSTASH_REDIS_REST_TOKEN: 'test-upstash-token',
+            TURNSTILE_SECRET_KEY: 'test-turnstile-secret',
           },
         },
       },

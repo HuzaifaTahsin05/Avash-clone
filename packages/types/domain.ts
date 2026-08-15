@@ -21,4 +21,6 @@ export type {
   RegionLatestWeatherRow,
   RegionIngestTargetRow,
   RegionRiskGeojsonRow,
+  HospitalLocationRow,
+  BloodWithinRadiusRow,
 } from '@avash/db';
