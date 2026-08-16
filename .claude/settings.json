@@ -13,8 +13,7 @@
     "vite",
     "hono",
     "cloudflare-workers",
-    "postgis",
-    "create-implementation-plan"
+    "postgis"
   ],
   "hooks": {
     "SessionStart": [

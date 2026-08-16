@@ -1,4 +1,5 @@
 ---
+name: wrapup
 description: Generate the commit message + PR description for the current changes
 ---
 

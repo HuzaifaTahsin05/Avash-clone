@@ -3,8 +3,7 @@
 // re-run only applies what's new (docs/PROJECT_PLAN.md §4).
 //
 // Targets the local Postgres/PostGIS container by default
-// (DATABASE_URL_LOCAL, docs/docker.md). Pointed at a real Supabase
-// project's connection string, the same migrations apply unchanged.
+// (DATABASE_URL_LOCAL, docs/docker.md).
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

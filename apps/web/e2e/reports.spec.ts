@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { test, expect, type Page } from '@playwright/test';
 
 /**
  * `/report` and `/moderation`, driven purely by route interception against
@@ -8,8 +9,53 @@ import { test, expect } from '@playwright/test';
  * pages as of this writing (this slice), not placeholders.
  */
 
-const API_BASE = 'http://localhost:8817';
+const API_BASE = 'http://localhost:8787';
 const SUPABASE_URL = 'https://kdklmbqkczkaakgswlix.supabase.co';
+
+/**
+ * `/moderation` is wrapped in a real `ProtectedRoute role="moderator"`
+ * (see `apps/web/e2e/auth.spec.ts`) — anonymous visitors are redirected to
+ * `/login` before `Moderation.tsx` ever renders. Seeding a fake moderator
+ * session via the same localStorage technique as `auth.spec.ts` is the only
+ * way to reach the page's own content in this suite.
+ */
+function readSupabaseProjectRef(): string {
+  const envFile = readFileSync('.env', 'utf-8');
+  const match = envFile.match(/VITE_PUBLIC_SUPABASE_URL=(\S+)/);
+  const url = match?.[1];
+  if (!url) {
+    throw new Error('VITE_PUBLIC_SUPABASE_URL not set in apps/web/.env — cannot derive the storage key.');
+  }
+  return new URL(url).hostname.split('.')[0] ?? '';
+}
+
+const STORAGE_KEY = `sb-${readSupabaseProjectRef()}-auth-token`;
+
+async function signInAsModerator(page: Page) {
+  const session = {
+    access_token: 'e2e-fake-access-token',
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    refresh_token: 'e2e-fake-refresh-token',
+    user: {
+      id: '00000000-0000-4000-8000-000000000001',
+      aud: 'authenticated',
+      role: 'authenticated',
+      email: 'e2e-moderator@example.test',
+      app_metadata: { role: 'moderator' },
+      user_metadata: {},
+      identities: [],
+      created_at: new Date().toISOString(),
+    },
+  };
+  await page.addInitScript(
+    ([key, value]) => {
+      window.localStorage.setItem(key as string, value as string);
+    },
+    [STORAGE_KEY, JSON.stringify(session)]
+  );
+}
 
 /**
  * Cloudflare Turnstile's widget loads its script from a fixed CDN URL and
@@ -88,13 +134,19 @@ test.describe('/report', () => {
 
     // Simulate the browser Geolocation API denying permission —
     // getCurrentPosition's error callback fires with a PERMISSION_DENIED-shaped error.
+    // `navigator.geolocation` is a getter-only accessor in Firefox, so a
+    // plain assignment is a silent no-op there (same pitfall documented for
+    // `window.localStorage` in auth.spec.ts) — defineProperty is required
+    // for the override to take effect in every browser this suite runs in.
     await page.addInitScript(() => {
-      // @ts-expect-error — overriding the real API for the test
-      window.navigator.geolocation = {
-        getCurrentPosition: (_success: unknown, error: (err: { code: number; message: string }) => void) => {
-          error({ code: 1, message: 'User denied Geolocation' });
+      Object.defineProperty(window.navigator, 'geolocation', {
+        value: {
+          getCurrentPosition: (_success: unknown, error: (err: { code: number; message: string }) => void) => {
+            error({ code: 1, message: 'User denied Geolocation' });
+          },
         },
-      };
+        configurable: true,
+      });
     });
 
     await page.goto('/report');
@@ -125,6 +177,8 @@ test.describe('/moderation', () => {
   const xssDescription = '<script>window.__xssFired = true;</script>Suspicious barrel';
 
   test('an XSS string in a report description renders inert, never executes', async ({ page }) => {
+    await signInAsModerator(page);
+
     let dialogFired = false;
     page.on('dialog', async (dialog) => {
       dialogFired = true;
@@ -162,6 +216,7 @@ test.describe('/moderation', () => {
   });
 
   test('an empty queue renders the empty state, not an error', async ({ page }) => {
+    await signInAsModerator(page);
     await page.route(`${SUPABASE_URL}/rest/v1/breeding_reports**`, (route) => route.fulfill({ json: [] }));
 
     await page.goto('/moderation');
@@ -169,7 +224,8 @@ test.describe('/moderation', () => {
     await expect(page.getByTestId('moderation-empty')).toBeVisible();
   });
 
-  test('verify/reject buttons are disabled while signed out', async ({ page }) => {
+  test('verify/reject buttons are enabled for a signed-in moderator', async ({ page }) => {
+    await signInAsModerator(page);
     await page.route(`${SUPABASE_URL}/rest/v1/breeding_reports**`, (route) =>
       route.fulfill({
         json: [
@@ -187,7 +243,31 @@ test.describe('/moderation', () => {
 
     await page.goto('/moderation');
 
-    await expect(page.getByTestId('verify-report')).toBeDisabled();
-    await expect(page.getByTestId('reject-report')).toBeDisabled();
+    await expect(page.getByTestId('verify-report')).toBeEnabled();
+    await expect(page.getByTestId('reject-report')).toBeEnabled();
+  });
+
+  test('visiting /moderation signed out redirects to /login, never rendering report content', async ({
+    page,
+  }) => {
+    await page.route(`${SUPABASE_URL}/rest/v1/breeding_reports**`, (route) =>
+      route.fulfill({
+        json: [
+          {
+            id: '22222222-2222-4222-8222-222222222222',
+            description: 'A blocked drain by the school.',
+            photo_url: null,
+            ai_validation: null,
+            status: 'pending',
+            created_at: '2026-08-14T06:00:00.000Z',
+          },
+        ],
+      })
+    );
+
+    await page.goto('/moderation');
+
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByTestId('moderation-row')).toHaveCount(0);
   });
 });
