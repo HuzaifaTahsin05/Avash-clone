@@ -134,15 +134,23 @@ jobs:
 
       - name: Build
         # apps/web/src/lib/env.ts throws at module load — not at build time —
-        # if VITE_PUBLIC_API_BASE_URL is unset, which crashes the whole app
-        # before it mounts. This dist is what e2e-web boots as a "production
+        # if any of these four are unset, which crashes the whole app before
+        # it mounts. This dist is what e2e-web boots as a "production
         # preview", so an unset var here doesn't fail this job; it fails
         # every Playwright spec downstream with an unrelated-looking
-        # "element not found". The value matches apps/web/.env.example and
-        # the origin apps/web/e2e/health-integration.spec.ts intercepts —
-        # nothing here ever makes a real network call.
+        # "element not found" (or, since SessionProvider now eagerly
+        # constructs the Supabase client, every single test alike, since the
+        # app never renders at all). VITE_PUBLIC_API_BASE_URL matches the
+        # origin apps/web/e2e/health-integration.spec.ts intercepts — nothing
+        # here ever makes a real network call. The Supabase/Turnstile values
+        # are the real project's public, non-secret identifiers (RLS gates
+        # data access, not URL/anon-key secrecy — §4.1) and match
+        # apps/web/.env's real local-dev values exactly.
         env:
           VITE_PUBLIC_API_BASE_URL: http://localhost:8787
+          VITE_PUBLIC_SUPABASE_URL: https://kdklmbqkczkaakgswlix.supabase.co
+          VITE_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtka2xtYnFrY3prYWFrZ3N3bGl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NTA0MTQsImV4cCI6MjEwMTMyNjQxNH0.nQne8sH2JCeFRMVfASZXUONOhwdhSJ4MF7mfGAntwmU
+          VITE_PUBLIC_TURNSTILE_SITE_KEY: 0x4AAAAAAEF8Y4SGwo17ABsD
         run: pnpm build
 
       - name: Bundle budget check (FRONTEND_BUNDLE_BUDGET_KB, §14)
