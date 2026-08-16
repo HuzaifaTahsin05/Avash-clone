@@ -106,4 +106,22 @@ describe('rate-limit middleware — user strategy', () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(429);
   });
+
+  test('fails closed (429) if reached with no authenticated user, rather than limiting an empty key', async () => {
+    const redis = fakeRedis();
+    const app = new Hono<AppEnv>();
+    app.use('*', requestId());
+    // No `auth()` in front — every real route always puts one there, but
+    // this proves the middleware itself never limits against a shared
+    // undefined-actor key if that guarantee is ever broken.
+    app.get(
+      '/guarded',
+      rateLimit({ guard: 'verify', window: 'minute', windowSeconds: 60, limit: 1, keyStrategy: 'user', redisFactory: () => redis }),
+      (c) => c.json({ ok: true })
+    );
+
+    const res = await app.request('/guarded', {}, env);
+    expect(res.status).toBe(429);
+    expect(redis.size('ratelimit:verify:minute:undefined')).toBe(0);
+  });
 });

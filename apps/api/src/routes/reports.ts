@@ -4,6 +4,7 @@ import {
   breedingReportRequestSchema,
   breedingReportResponseSchema,
   breedingReportVerifyRequestSchema,
+  SPAM_LIKELIHOOD_REJECT_THRESHOLD,
   type AiValidation,
 } from '@avash/types';
 import { buildGenericErrorBody, logger } from '@avash/logger';
@@ -17,14 +18,6 @@ import { validateReportDescription } from '../lib/reportValidation';
 import type { AppEnv, Bindings } from '../types';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * `SPAM_LIKELIHOOD_REJECT_THRESHOLD` (§14, docs/constants-registry.md) —
- * above this a report is flagged for moderator review, never rejected
- * outright (a spam-flagged or Gemini-unreachable report is still stored
- * with `status: 'pending'`; only the flag differs).
- */
-const SPAM_LIKELIHOOD_REJECT_THRESHOLD = 0.7;
 
 /** Fallback `ai_validation` payload when Gemini is unavailable/quota-exhausted — always flags for manual review. */
 const AI_VALIDATION_UNAVAILABLE: AiValidation = {

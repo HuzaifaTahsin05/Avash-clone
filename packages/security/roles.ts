@@ -1,3 +1,5 @@
+import { appRoleSchema, type AppRole } from '@avash/types';
+
 /**
  * Where a custom role lives in a Supabase JWT (decision A). `app_metadata`
  * is set server-side only — a user cannot self-assign it via `user_metadata`,
@@ -5,9 +7,9 @@
  */
 export const APP_ROLE_CLAIM_PATH = 'app_metadata.role';
 
-export type AppRole = 'moderator' | 'admin';
+export type { AppRole };
 
-const APP_ROLES: readonly AppRole[] = ['moderator', 'admin'];
+const APP_ROLES: readonly AppRole[] = appRoleSchema.options;
 
 function isAppRole(value: unknown): value is AppRole {
   return typeof value === 'string' && (APP_ROLES as readonly string[]).includes(value);

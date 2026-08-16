@@ -198,6 +198,17 @@ export type SymptomCheckResponse = z.infer<typeof symptomCheckResponseSchema>;
 
 export const REPORT_DESCRIPTION_MAX_CHARS = 1000;
 
+/**
+ * Above this `AiValidation.spamLikelihood`, a report is flagged for
+ * moderator review — never rejected outright (a spam-flagged or
+ * Gemini-unreachable report is still stored with `status: 'pending'`;
+ * only the flag differs). Shared between `apps/api/src/routes/reports.ts`
+ * (computes `flaggedForReview` on create) and the moderation queue UI
+ * (recomputes the same flag from a direct Supabase read) so the two never
+ * drift apart.
+ */
+export const SPAM_LIKELIHOOD_REJECT_THRESHOLD = 0.7;
+
 export const breedingReportRequestSchema = z.object({
   lat: latitudeSchema,
   lng: longitudeSchema,

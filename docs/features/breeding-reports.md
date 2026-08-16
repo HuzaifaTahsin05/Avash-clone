@@ -186,7 +186,7 @@ from here, so an authenticated moderator request that clears `auth` gets
 a real `429` (fail-closed) rather than reaching the handler. Both are
 documented, expected boundaries given this environment's placeholder
 third-party credentials, not test failures — see the comment block at the
-top of that spec file. `apps/web/e2e/reports.spec.ts` (6 cases) verified
+top of that spec file. `apps/web/e2e/reports.spec.ts` (7 cases) verified
 manually against a dedicated `vite preview` instance with the Turnstile
 script and API stubbed via Playwright route interception (port 4173, this
 repo's configured e2e port, was occupied by a sibling worktree's own

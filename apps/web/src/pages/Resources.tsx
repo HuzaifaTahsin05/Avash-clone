@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { bloodGroupSchema, type BloodGroup } from '@avash/types';
+import { MAP_DEFAULT_CENTER } from '../features/map/tileLayer';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useBloodAvailability } from '../features/resources/useBloodAvailability';
 import { useBloodInventoryRealtime } from '../features/resources/useBloodInventoryRealtime';
@@ -7,10 +8,10 @@ import { useBloodInventoryRealtime } from '../features/resources/useBloodInvento
 const BLOOD_GROUPS = bloodGroupSchema.options;
 
 // No on-page geolocation prompt for this slice — a fixed Dhaka-centered
-// search origin mirrors MAP_DEFAULT_CENTER
-// (apps/web/src/features/map/tileLayer.ts). A future slice can wire this
-// to apps/web/src/hooks/useGeolocation.ts once that hook ships.
-const DEFAULT_SEARCH_CENTER = { lat: 23.78, lng: 90.4 };
+// search origin, sourced from MAP_DEFAULT_CENTER so the two can never
+// drift apart. A future slice can wire this to
+// apps/web/src/hooks/useGeolocation.ts once that hook ships.
+const DEFAULT_SEARCH_CENTER = { lat: MAP_DEFAULT_CENTER[0], lng: MAP_DEFAULT_CENTER[1] };
 
 interface LiveOverride {
   unitsAvailable: number;

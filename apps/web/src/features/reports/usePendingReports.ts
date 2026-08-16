@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
+import { aiValidationSchema, type AiValidation } from '@avash/types';
 import { supabase } from '../../lib/supabaseClient';
 
 export interface PendingReportRow {
   id: string;
   description: string | null;
   photo_url: string | null;
-  ai_validation: { isPlausible?: boolean; category?: string; spamLikelihood?: number } | null;
+  ai_validation: AiValidation | null;
   status: string;
   created_at: string;
 }
@@ -28,7 +29,23 @@ export async function fetchPendingReports(): Promise<PendingReportRow[]> {
   if (error) {
     throw new Error('Unable to load the moderation queue.');
   }
-  return (data ?? []) as PendingReportRow[];
+
+  // `ai_validation` is untrusted JSON straight from the DB (not routed
+  // through apps/api's zod-validated responses) — a malformed or
+  // legacy-shaped blob must never be trusted as the frozen AiValidation
+  // shape, so it's re-validated here and dropped to null on mismatch
+  // rather than cast.
+  return (data ?? []).map((row) => {
+    const parsed = aiValidationSchema.safeParse(row.ai_validation);
+    return {
+      id: row.id,
+      description: row.description,
+      photo_url: row.photo_url,
+      status: row.status,
+      created_at: row.created_at,
+      ai_validation: parsed.success ? parsed.data : null,
+    };
+  });
 }
 
 export function usePendingReports() {

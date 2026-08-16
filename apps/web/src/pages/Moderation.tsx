@@ -1,8 +1,7 @@
+import { SPAM_LIKELIHOOD_REJECT_THRESHOLD } from '@avash/types';
 import { useSession } from '../features/auth/SessionProvider';
 import { usePendingReports } from '../features/reports/usePendingReports';
 import { useVerifyReport } from '../features/reports/useVerifyReport';
-
-const SPAM_LIKELIHOOD_REJECT_THRESHOLD = 0.7;
 
 export default function Moderation() {
   const { accessToken } = useSession();

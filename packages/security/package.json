@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@avash/types": "workspace:*",
     "@upstash/redis": "^1.35.5"
   }
 }

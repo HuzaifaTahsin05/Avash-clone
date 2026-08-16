@@ -172,7 +172,7 @@ STRIDE analysis, mirrored into `docs/security/threat-model.md`:
 **Manual Test Log:**
 
 2026-08-16, initial implementation pass. Full workerd Vitest suite
-(`apps/api/test/routes/resources.test.ts`, 19 cases) exercises every
+(`apps/api/test/routes/resources.test.ts`, 27 cases) exercises every
 branch reachable without a hosted Supabase project, including the
 authorization-boundary case above. `apps/api/e2e/resources.spec.ts` and
 `apps/web/e2e/resources.spec.ts` are contract/route-interception suites,

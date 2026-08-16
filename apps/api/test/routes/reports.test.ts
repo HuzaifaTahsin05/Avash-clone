@@ -300,6 +300,24 @@ describe('POST /api/reports/breeding-site', () => {
     expect((insertCall?.body?.ai_validation as { spamLikelihood: number })?.spamLikelihood).toBe(0.95);
   });
 
+  test('spamLikelihood exactly at SPAM_LIKELIHOOD_REJECT_THRESHOLD (0.7) is NOT flagged — the comparison is strictly greater-than', async () => {
+    const combined = combinedFetch({ gemini: { data: { isPlausible: true, category: 'other', spamLikelihood: 0.7 } } });
+    vi.stubGlobal('fetch', combined.fetch);
+
+    const res = await buildApp().request(
+      '/breeding-site',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ lat: 23.78, lng: 90.4, description: 'standing water near the drain', turnstileToken: 'good-token' }),
+      },
+      fakeBindings()
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as BreedingReportResponse;
+    expect(body.flaggedForReview).toBe(false);
+  });
+
   test('Gemini unavailable (HTTP failure) → still stored (201, pending), flagged for manual review', async () => {
     const combined = combinedFetch({ gemini: { status: 503, data: {} } });
     vi.stubGlobal('fetch', combined.fetch);
