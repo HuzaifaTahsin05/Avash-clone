@@ -17,4 +17,10 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    // scripts/check-bundle-budget.mjs reads this to measure only the
+    // eagerly-loaded shell (the entry chunk and its static imports),
+    // never the lazy route chunks a browser only fetches on navigation.
+    manifest: true,
+  },
 });
