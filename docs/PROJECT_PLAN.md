@@ -522,6 +522,17 @@ All routes mounted in `apps/api/src/index.ts`. Every request passes through `mid
 | `POST /api/symptom-check` | public | cors, headers, rate-limit, quota-guard | 10/min/IP, 50/day/IP | Gemini structuring → deterministic rule engine, no PII persisted |
 | `POST /api/alerts/subscribe` | authenticated | cors, headers, auth (JWT), rate-limit | 5/min/user | Upsert `alert_subscriptions` |
 | `POST /api/alerts/push-subscription` | authenticated | cors, headers, auth (JWT) | 5/min/user | Registers browser Push subscription (`push_subscriptions`) |
+| `GET /api/admin/users?page=` | admin (`roles:manage`) | cors, headers, auth (JWT + capability), rate-limit | 10/min/user | Paged user list via the Supabase Admin API, 50/page; malformed rows dropped |
+| `PATCH /api/admin/users/:id/role` | admin (`roles:manage`) | cors, headers, auth (JWT + capability), rate-limit | 10/min/user | Writes `app_metadata.role` + an append-only `role_assignments` audit row; 409 on self-demotion |
+
+**§6 amendment — role administration.** The two `/api/admin/users` rows
+above were added by the RBAC slice; this section predates the existence of
+any role-assignment mechanism, which was previously a manual step in the
+Supabase dashboard. They live in `apps/api` because writing `app_metadata`
+requires the service-role key (R2). Note also that the auth column for
+`PATCH /api/resources/blood/:id` now means *`inventory:write` **and** a
+`verified_hospital_staff` row for that hospital* — the capability alone is
+necessary but not sufficient. See `docs/features/rbac.md`.
 
 **§6 amendment — weather routes.** `GET /api/weather/latest` and
 `GET /api/weather/history` were added above because this section predates
@@ -811,7 +822,7 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 | `MAP_DEFAULT_ZOOM` | 7 | `apps/web/src/features/map/tileLayer.ts` | initial zoom — all seeded regions visible in one view |
 | `APP_ROLE_CLAIM_PATH` | `app_metadata.role` | migration `20260815000012_app_role_and_resource_reads.sql`, `packages/security/roles.ts` | where a custom role lives in a Supabase JWT — server-controlled, unlike `user_metadata` |
 | `JWT_CLOCK_TOLERANCE_S` | 60 | `apps/api/src/lib/jwtVerify.ts` | leeway for clock skew between Supabase's issuer and the Worker |
-| `GEMINI_MODEL_ID` | `gemini-2.5-flash` | `apps/api/src/lib/geminiClient.ts` | the one value to change when swapping Gemini models |
+| `GEMINI_MODEL_ID` | `gemini-3.1-flash-lite` | `apps/api/src/lib/geminiClient.ts` | the one value to change when swapping Gemini models (was `gemini-2.5-flash`, retired by Google for new API consumers — see the constant's own comment) |
 | `GEMINI_REQUEST_TIMEOUT_MS` | 5000 | `apps/api/src/lib/geminiClient.ts` | bounds a hung Gemini call inside the Worker's request budget |
 | `SYMPTOM_TEXT_MAX_CHARS` | 500 | `packages/types/api.ts` | §5.4 input length cap, prompt-injection surface reduction |
 | `REPORT_DESCRIPTION_MAX_CHARS` | 1000 | `packages/types/api.ts` | §5.4 input length cap |

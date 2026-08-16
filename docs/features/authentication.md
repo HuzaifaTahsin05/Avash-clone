@@ -30,18 +30,24 @@ as one who navigates through it normally.
   object comes from a token this app does not fully control, and a
   malformed or partial shape (including a session object with no `user`
   at all) resolves to `anonymous`, never throws.
-- **Role mechanism.** `role` comes from `readAppRole()`
+- **Role mechanism.** `role` comes from `resolveAppRole()`
   (`@avash/security`), applied to `session.user` directly — Supabase's
   JS client already decodes the JWT for you and exposes its custom
-  claims at `session.user.app_metadata`, which is exactly the shape
-  `readAppRole()` expects (`APP_ROLE_CLAIM_PATH` = `app_metadata.role`).
-  **There is no in-app UI for granting a role.** Setting
-  `app_metadata = {"role": "moderator"}` on a user is a deliberate manual
-  step, done server-side only via Supabase's dashboard or the admin API
-  (which requires the service-role key — never callable from `apps/web`).
-  This is intentional: `app_metadata` is not writable by the client
+  claims at `session.user.app_metadata`, which is exactly the shape it
+  expects (`APP_ROLE_CLAIM_PATH` = `app_metadata.role`). An authenticated
+  user with no (or an unrecognized) claim resolves to `citizen`; `role`
+  stays `null` only on the anonymous branch, so a null role never has to
+  be interpreted twice. `app_metadata` is not writable by the client
   (unlike `user_metadata`), so a signed-in user cannot self-grant a role
   by any client-side action, scripted or otherwise.
+
+  **The role set, the capability model, and how a role is assigned are
+  owned by [`docs/features/rbac.md`](rbac.md), not this document.** Note
+  that the previous statement here — *"there is no in-app UI for granting
+  a role"* — is no longer true: `PATCH /api/admin/users/:id/role` and
+  `/admin/users` are that mechanism, with an append-only audit trail.
+  What has **not** changed is why it lives in `apps/api`: the write needs
+  the service-role key, which never reaches `apps/web`.
 - **Sign-in / sign-up / sign-out**
   (`SignInForm.tsx`, `SignUpForm.tsx`, `useSignIn.ts`, `useSignOut.ts`)
   wrap `supabase.auth.signInWithPassword`, `signUp`, and `signOut`.
@@ -65,10 +71,12 @@ as one who navigates through it normally.
   a redirect or the page's content), redirects to `/login` with the
   attempted path preserved in router state (`location.state.from`) when
   `anonymous`, and renders a generic "Access restricted" page — never a
-  redirect loop — when authenticated but lacking the required role. A
-  route requiring `role="moderator"` also admits `role="admin"`, via
-  `@avash/security`'s `isModerator()`, matching `Header.tsx`'s existing
-  `role === 'moderator' || role === 'admin'` check for the nav link.
+  redirect loop — when authenticated but not permitted. It accepts
+  `capability` (preferred) and/or `role`; both supplied means both are
+  required, neither means "any signed-in user", which is `/dashboard`'s
+  case. `Header.tsx` filters its nav links through the same
+  `can(role, capability)` predicate, so a link and its destination can no
+  longer disagree about who may reach it.
 - `Login.tsx` composes `SignInForm`/`SignUpForm` behind a tab toggle; a
   successful sign-in navigates to `location.state.from` if the visitor
   arrived via a redirect from `ProtectedRoute`, otherwise `/`.
@@ -93,12 +101,23 @@ which only probes `setItem`/`removeItem` before adopting it, and
 the otherwise sub-100ms `loading` window can be observed with web-first
 assertions instead of an arbitrary `waitForTimeout`.
 
+**Token verification is JWKS-based, not the shared secret (2026-08-16).**
+The hosted project signs access tokens with an **ES256** key published at
+`/auth/v1/.well-known/jwks.json`, not with `SUPABASE_JWT_SECRET`. The
+Worker's `jwtVerify` accepted HS256 only, so it rejected every real token
+and returned 401 from every authenticated route — which is what made the
+role-administration and moderator-verify UIs appear broken. It now picks
+its verification path from the token's `alg` header (HS256 → shared
+secret; ES256/RS256 → cached JWKS) and rejects anything else, including
+`alg: none`. Full reasoning, including why this is not an
+algorithm-confusion vulnerability, is in the ADR-009 amendment.
+
 **Critical Constants:**
 
 | Constant | Value | Defined in | Purpose |
 |---|---|---|---|
 | `APP_ROLE_CLAIM_PATH` | `app_metadata.role` | `packages/security/roles.ts` | where a custom role lives in the decoded Supabase JWT |
-| `AppRole` | `'moderator' \| 'admin'` | `packages/security/roles.ts` | the only two roles the client (and the Worker) recognize |
+| `AppRole` | `citizen \| hospital_staff \| moderator \| admin` | `packages/types/api.ts` | the four roles the client and the Worker recognize — see `docs/features/rbac.md` |
 | `SIGN_IN_GENERIC_ERROR` | fixed string | `apps/web/src/features/auth/useSignIn.ts` | the only text a failed sign-in ever renders |
 | `SIGN_UP_GENERIC_ERROR` | fixed string | `apps/web/src/features/auth/SignUpForm.tsx` | the only text a failed sign-up ever renders |
 | `SIGN_OUT_GENERIC_ERROR` | fixed string | `apps/web/src/features/auth/useSignOut.ts` | the only text a failed sign-out ever renders |

@@ -117,7 +117,7 @@ pending reports read directly from Supabase and lets a moderator mark one
 | `SPAM_LIKELIHOOD_REJECT_THRESHOLD` | 0.7 | `apps/api/src/routes/reports.ts` | above this a report is flagged for moderator review, never rejected |
 | `BREEDING_REPORT_RATE_LIMIT` | 5/min, 20/day per IP | `packages/security` | abuse prevention on the anonymous create route |
 | `REPORT_VERIFY_RATE_LIMIT` | 20/min per user | `packages/security` | abuse prevention on the moderator verify route |
-| `GEMINI_MODEL_ID` / `GEMINI_REQUEST_TIMEOUT_MS` | `gemini-2.5-flash` / 5000 | `apps/api/src/lib/geminiClient.ts` | shared with the symptom checker; bounds the report-validation call inside the Worker's request budget |
+| `GEMINI_MODEL_ID` / `GEMINI_REQUEST_TIMEOUT_MS` | `gemini-3.1-flash-lite` / 5000 | `apps/api/src/lib/geminiClient.ts` | shared with the symptom checker; bounds the report-validation call inside the Worker's request budget |
 
 **Security Considerations:**
 

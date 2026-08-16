@@ -30,19 +30,34 @@ source code.
 
 ## Environment matrix
 
+**Why four secrets now list `.env` as well as `apps/api/.dev.vars`.**
+`wrangler dev` reads `.dev.vars`; the `api` **container** cannot —
+`.dockerignore` keeps `**/.dev.vars` out of every build context, and
+Compose interpolates only the repo-root `.env`. So `compose.yaml` forwards
+`SUPABASE_JWT_SECRET`, both `UPSTASH_*`, and `TURNSTILE_SECRET_KEY` into
+the container from `.env`, and they have to exist in both files.
+
+They were previously absent from `.env.example` entirely, so
+`pnpm docker:apps` passed empty strings: every symptom check and every
+breeding-site report 429'd (the rate limiter fails closed on unreachable
+Redis) and every report additionally 403'd (Turnstile siteverify rejects
+an empty secret). Both surfaced in the browser as a generic error, which
+is correct behaviour (R10) and made the cause invisible. `apps/api/server/node-server.ts`
+now refuses to start without them rather than warning.
+
 | Variable | Exposure | Consumers | Local file |
 |---|---|---|---|
 | `SUPABASE_URL` | server-only | `apps/api`, GH Actions job scripts, `ml/serving/predict.py` — same value as `VITE_PUBLIC_SUPABASE_URL`, read under this name server-side | `.env` |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-only | `apps/api`, GH Actions job scripts | `apps/api/.dev.vars`, `.env` |
-| `SUPABASE_JWT_SECRET` | server-only | `apps/api` (local JWT verification, ADR-009) | `apps/api/.dev.vars` |
+| `SUPABASE_JWT_SECRET` | server-only | `apps/api` (local JWT verification, ADR-009) | `apps/api/.dev.vars`, `.env` |
 | `VITE_PUBLIC_SUPABASE_URL` | client (`apps/web`) | citizen reads, Realtime subscriptions — real gate is RLS, not secrecy | `apps/web/.env` |
 | `VITE_PUBLIC_SUPABASE_ANON_KEY` | client (`apps/web`) | citizen reads, Realtime subscriptions — real gate is RLS, not secrecy | `apps/web/.env` |
 | `VITE_PUBLIC_API_BASE_URL` | client (`apps/web`) | base URL of the `apps/api` Worker, used by `apps/web/src/lib/apiClient.ts` | `apps/web/.env` |
 | `GEMINI_API_KEY` | server-only | `apps/api` routes, `scripts/jobs/news-scan.ts` | `apps/api/.dev.vars`, `.env` |
 | `OPENWEATHERMAP_API_KEY` | server-only | `scripts/jobs/weather-ingest.ts` | `.env` |
-| `UPSTASH_REDIS_REST_URL` | server-only | `apps/api` rate limiter | `apps/api/.dev.vars` |
-| `UPSTASH_REDIS_REST_TOKEN` | server-only | `apps/api` rate limiter | `apps/api/.dev.vars` |
-| `TURNSTILE_SECRET_KEY` | server-only | `apps/api` (server-side verification call) | `apps/api/.dev.vars` |
+| `UPSTASH_REDIS_REST_URL` | server-only | `apps/api` rate limiter + Gemini quota guard | `apps/api/.dev.vars`, `.env` |
+| `UPSTASH_REDIS_REST_TOKEN` | server-only | `apps/api` rate limiter + Gemini quota guard | `apps/api/.dev.vars`, `.env` |
+| `TURNSTILE_SECRET_KEY` | server-only | `apps/api` (server-side verification call) | `apps/api/.dev.vars`, `.env` |
 | `VITE_PUBLIC_TURNSTILE_SITE_KEY` | client | widget render only | `apps/web/.env` |
 | `VITE_PUBLIC_VAPID_PUBLIC_KEY` | client (`apps/web`) | Push subscription registration | `apps/web/.env` |
 | `VAPID_PUBLIC_KEY` | server-only | `ml/serving/predict.py` — Web Push signing needs both halves of the keypair; same value as `VITE_PUBLIC_VAPID_PUBLIC_KEY` | `.env` |

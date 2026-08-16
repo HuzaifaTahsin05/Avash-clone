@@ -22,7 +22,12 @@ pnpm db:migrate                 # apply packages/db/supabase/migrations
 pnpm db:seed                    # regions, hospitals, historical cases
 pnpm tsx scripts/jobs/weather-ingest.ts
 
-pnpm docker:db                  # Postgres 15 + PostGIS on 127.0.0.1:54322
+pnpm role:list                  # every account and its role
+pnpm role:grant -- --email you@example.com --role admin    # bootstrap the first admin
+
+pnpm docker:supabase            # local Supabase stack: PostgREST+Auth+Realtime :54321 (ADR-014)
+pnpm docker:supabase:status     # keys + ports;  :stop  :nuke
+pnpm docker:db                  # Postgres 15 + PostGIS on 127.0.0.1:54322 (schema work only)
 pnpm docker:ml python ml/training/train.py     # pinned Python 3.11 image
 pnpm docker:apps                # both app images: web :8080, api :8787
 pnpm docker:status              # what's up, or the exact command to start it
@@ -48,7 +53,8 @@ templates): `apps/web/.env` (`VITE_PUBLIC_*` only), `apps/api/.dev.vars`
 | Secret-touching code | `apps/api/src/routes/*`, `scripts/jobs/*`, `ml/serving/*` |
 | Constants | `docs/constants-registry.md` — check before hardcoding |
 | Build order | `docs/PROJECT_PLAN.md` §13 — wins on conflict |
-| Infra containers | `compose.yaml`, `docker/` |
+| Roles, capabilities, role assignment | `docs/features/rbac.md`; grant table in `packages/security/roles.ts` |
+| Infra containers | `compose.yaml`, `docker/`; local Supabase in `packages/db/supabase/config.toml` |
 | App images | `apps/*/Dockerfile`; Node adapter in `apps/api/server/` |
 
 `.test.ts` is Vitest, `.spec.ts` is Playwright — the extension is

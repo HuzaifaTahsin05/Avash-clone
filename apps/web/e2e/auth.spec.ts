@@ -20,7 +20,9 @@ import { test, expect, type Page } from '@playwright/test';
 const SUPABASE_PROJECT_REF = 'kdklmbqkczkaakgswlix';
 const STORAGE_KEY = `sb-${SUPABASE_PROJECT_REF}-auth-token`;
 
-function fakeSession(role: 'moderator' | 'admin' | null) {
+type E2ERole = 'citizen' | 'hospital_staff' | 'moderator' | 'admin' | null;
+
+function fakeSession(role: E2ERole) {
   return {
     access_token: 'e2e-fake-access-token',
     token_type: 'bearer',
@@ -41,7 +43,7 @@ function fakeSession(role: 'moderator' | 'admin' | null) {
 }
 
 /** Seeds a session so the app boots already "signed in", no network call. */
-async function signInAs(page: Page, role: 'moderator' | 'admin' | null) {
+async function signInAs(page: Page, role: E2ERole) {
   await page.addInitScript(
     ([key, session]) => {
       window.localStorage.setItem(key as string, JSON.stringify(session));
@@ -62,7 +64,7 @@ async function signInAs(page: Page, role: 'moderator' | 'admin' | null) {
  * `getItemAsync()`, which `await`s whatever `storage.getItem` returns —
  * a Promise-returning `getItem` is honored, not just a synchronous one.
  */
-async function signInWithDelayedSessionRead(page: Page, role: 'moderator' | 'admin' | null, delayMs: number) {
+async function signInWithDelayedSessionRead(page: Page, role: E2ERole, delayMs: number) {
   await page.addInitScript(
     ([key, session, delay]) => {
       const backing = new Map<string, string>();

@@ -16,6 +16,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
@@ -201,8 +202,21 @@ if (eager > EAGER_LINE_BUDGET)
 
 const routingSet = new Set(routing);
 
+// Every extractor below normalizes CRLF first. `core.autocrlf` is true on
+// this repo's Windows checkouts and there is no `.gitattributes`, so these
+// files arrive with `\r\n` there and `\n` elsewhere. The YAML block matcher
+// in particular could not span CRLF lines — `.*` stops at the `\r`, the
+// optional `\n` then fails to match it, and the repetition ends after the
+// first row — so on Windows it reported *every* routing row as missing,
+// which reads as "the mirrors are all out of sync" rather than as a parser
+// bug. Normalizing once here is simpler than making three regexes
+// individually `\r`-tolerant.
+function normalizeNewlines(body) {
+  return String(body ?? "").replace(/\r\n/g, "\n");
+}
+
 function extractYamlRouting(body) {
-  const block = /readBeforeYouAct:\s*\n((?:[ \t]+\S.*\n?)+)/.exec(body)?.[1] ?? "";
+  const block = /readBeforeYouAct:\s*\n((?:[ \t]+\S.*\n?)+)/.exec(normalizeNewlines(body))?.[1] ?? "";
   return new Set([...block.matchAll(/^[ \t]+[\w./-]+:\s*(\S+)\s*$/gm)].map((m) => m[1]));
 }
 
@@ -213,7 +227,9 @@ function extractCursorRouting(body) {
 }
 
 function extractMarkdownTableRouting(body) {
-  return new Set([...body.matchAll(/^\|\s*[^|]+\|\s*`([^`]+)`\s*\|$/gm)].map((m) => m[1]));
+  return new Set(
+    [...normalizeNewlines(body).matchAll(/^\|\s*[^|]+\|\s*`([^`]+)`\s*\|$/gm)].map((m) => m[1])
+  );
 }
 
 const MIRRORS = [
@@ -242,9 +258,38 @@ for (const [path, extract] of MIRRORS) {
 // ------------------------------------------------------- unknown config files
 
 const CANDIDATE_DIRS = [".claude", ".cursor", ".codex", ".agents"];
+
+/**
+ * Runtime artifacts a tool writes locally into a candidate dir (e.g.
+ * `.claude/scheduled_tasks.lock`, written by Claude Code while a scheduled
+ * or looped task is active) are not agent config and must not need a
+ * Layer 1 table entry. `check-internal-refs.mjs` already gets this right
+ * by scanning only `git ls-files --cached --others --exclude-standard`;
+ * this mirrors that so a file gitignored (or locally excluded via
+ * `.git/info/exclude`, which `--exclude-standard` also honors) can exist
+ * on disk without failing the gate on every machine that has ever run it.
+ * Falls back to "nothing is ignored" if git is unavailable, which just
+ * means the gate is exactly as strict as before this fix — never looser.
+ */
+function ignoredPathsUnder(dirs) {
+  try {
+    const out = execFileSync(
+      "git",
+      ["ls-files", "--others", "--ignored", "--exclude-standard", "--", ...dirs],
+      { cwd: ROOT, encoding: "utf8", maxBuffer: 1024 * 1024 * 16 }
+    );
+    return new Set(out.split("\n").map((line) => line.trim()).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+const ignoredPaths = ignoredPathsUnder(CANDIDATE_DIRS);
+
 const walk = (dir) => {
   for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
     const p = `${dir}/${entry.name}`;
+    if (ignoredPaths.has(p)) continue;
     if (entry.isDirectory()) walk(p);
     // Skills and commands are lazy content, not eager config — exempt.
     else if (!p.startsWith(".claude/skills/") && !p.startsWith(".claude/commands/") && !KNOWN.has(p))

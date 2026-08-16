@@ -124,7 +124,11 @@ export function createResources(options?: CreateResourcesOptions) {
     })
     .patch(
       '/blood/:id',
-      auth(),
+      // The capability is a cheap first gate, not the boundary — step 2
+      // below is. It exists so revoking someone's hospital_staff role
+      // locks them out immediately, without also having to find and delete
+      // their verified_hospital_staff membership rows.
+      auth({ capability: 'inventory:write' }),
       rateLimit({
         guard: 'blood-update',
         window: 'minute',

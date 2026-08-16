@@ -1,7 +1,35 @@
 import { z } from 'zod';
 
-/** `GEMINI_MODEL_ID` (§14) — the one value to change when swapping Gemini models. */
-export const GEMINI_MODEL_ID = 'gemini-2.5-flash';
+/**
+ * `GEMINI_MODEL_ID` (§14) — the one value to change when swapping Gemini
+ * models.
+ *
+ * Was `gemini-2.5-flash`, which Google retired for new API consumers: it
+ * is still listed by `GET /v1beta/models` but every `generateContent`
+ * call against it answers 404 `"no longer available to new users"`. That
+ * failure was invisible from the UI — `callGeminiStructured` correctly
+ * degraded to `{ ok: false }` and both callers correctly fell back, so
+ * the symptom checker just quietly stopped pre-filling the checklist and
+ * every described-in-text report got flagged for manual review.
+ *
+ * Deliberately a pinned version, not the `gemini-flash-latest` alias.
+ * The alias moves under us — the same silent-degradation class of bug,
+ * only on Google's schedule instead of ours — and it answered 503 under
+ * load when tested here, while a pin answered 200.
+ *
+ * A `-lite` model, deliberately. `gemini-3.5-flash` was tried first and
+ * measured at 14–30s per call, because it reasons before answering; that
+ * blows both `GEMINI_REQUEST_TIMEOUT_MS` (5s) and the browser's
+ * `API_CLIENT_TIMEOUT_MS` (8s), so every call timed out and AI assist
+ * stayed off. This model measured 1.3–1.5s typical for the same request.
+ *
+ * Reasoning quality is not what this call needs: under ADR-004 the model
+ * only maps free text onto a boolean checklist, and the deterministic
+ * engine — never the model — makes the triage decision. Extraction
+ * accuracy was spot-checked against a multi-symptom description and was
+ * correct on every field, including the negative ones.
+ */
+export const GEMINI_MODEL_ID = 'gemini-3.1-flash-lite';
 /** `GEMINI_REQUEST_TIMEOUT_MS` (§14) — bounds a hung Gemini call inside the Worker's request budget. */
 export const GEMINI_REQUEST_TIMEOUT_MS = 5000;
 
@@ -19,6 +47,63 @@ export interface CallGeminiStructuredOptions<T> {
 }
 
 export type CallGeminiStructuredResult<T> = { ok: true; data: T } | { ok: false; reason: string };
+
+/**
+ * Gemini's `responseSchema` accepts a restricted subset of OpenAPI 3.0
+ * Schema, NOT full JSON Schema. `z.toJSONSchema()` emits at least two keys
+ * it rejects outright with a 400: `$schema` (draft identifier) and
+ * `additionalProperties` (which zod always sets to `false` for a strict
+ * object).
+ *
+ * This was sending an invalid schema on every call since the feature
+ * shipped, so AI assist has never actually worked — the failure was
+ * invisible because `callGeminiStructured` degrades to `{ ok: false }` by
+ * design and both callers correctly fall back. It only became findable
+ * once `symptom-check.ts` started logging the reason.
+ *
+ * Recursive: nested objects and array `items` carry the same keys and are
+ * rejected the same way. Unknown keys are dropped rather than passed
+ * through, so a future zod version emitting some new annotation cannot
+ * silently reintroduce this.
+ */
+const GEMINI_SCHEMA_KEYS = new Set([
+  'type',
+  'format',
+  'description',
+  'nullable',
+  'enum',
+  'items',
+  'properties',
+  'required',
+]);
+
+function toGeminiSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map(toGeminiSchema);
+  }
+  if (typeof schema !== 'object' || schema === null) {
+    return schema;
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (!GEMINI_SCHEMA_KEYS.has(key)) {
+      continue;
+    }
+    if (key === 'properties' && typeof value === 'object' && value !== null) {
+      const properties: Record<string, unknown> = {};
+      for (const [name, child] of Object.entries(value as Record<string, unknown>)) {
+        properties[name] = toGeminiSchema(child);
+      }
+      result[key] = properties;
+    } else if (key === 'items') {
+      result[key] = toGeminiSchema(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
 
 /** Strips HTML/markdown/control characters before the untrusted text ever reaches the prompt. */
 function sanitizeUserContent(input: string): string {
@@ -66,7 +151,7 @@ export async function callGeminiStructured<T>(
         ],
         generationConfig: {
           responseMimeType: 'application/json',
-          responseSchema: z.toJSONSchema(responseSchema, { target: 'draft-07' }),
+          responseSchema: toGeminiSchema(z.toJSONSchema(responseSchema, { target: 'draft-07' })),
         },
       }),
     });

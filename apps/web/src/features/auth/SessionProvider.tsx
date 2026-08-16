@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { readAppRole } from '@avash/security';
+import { resolveAppRole } from '@avash/security';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../lib/supabaseClient';
 import { SessionContext, initialSessionValue, type SessionContextValue } from './useSession';
@@ -24,7 +24,10 @@ function deriveSessionState(session: Session | null | undefined): SessionContext
   return {
     session: session ?? null,
     user: { id: supaUser.id, email: supaUser?.email ?? null },
-    role: readAppRole(supaUser),
+    // Authenticated with no (or an unrecognized) role claim is a citizen,
+    // not "role unknown" — `role` stays null only for the anonymous branch
+    // above, so a null role never has to be interpreted twice.
+    role: resolveAppRole(supaUser),
     accessToken: session?.access_token ?? null,
     status: 'authenticated',
   };

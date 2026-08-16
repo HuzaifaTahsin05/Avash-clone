@@ -23,6 +23,8 @@ scaffold with `pnpm install && pnpm dev` and no daemon installed.
 | Path                                       | Purpose                                                                                             |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
 | `compose.yaml`                             | `db` (PostGIS, default profile), `ml` (batch runtime, `ml` profile), `web` + `api` (`apps` profile) |
+| `packages/db/supabase/config.toml`         | The containerized local Supabase stack (ADR-014) — PostgREST + GoTrue + Realtime, the target when running the app |
+| `scripts/supabase-local.mjs`               | `pnpm docker:supabase*` — drives that stack through the repo's pinned CLI, from the repo root |
 | `docker/ml.Dockerfile`                     | Python 3.11 image for `ml/` — training, evaluation, ONNX export, batch inference                    |
 | `docker/postgis/initdb/00-extensions.sql`  | First-boot extension enablement (`postgis`, `pgcrypto`) — schema objects never go here              |
 | `ml/requirements.txt`                      | Exact-pinned Python dependencies; the image and the scheduled jobs install from this same file      |
@@ -93,8 +95,25 @@ script, the container and Supabase have silently diverged.
 The container exists to make local schema work trustworthy, which only
 holds while the versions match. Before relying on a local verification:
 
-- **Postgres major version** — the image is pinned to 15. Confirm against
-  the Supabase project's reported version.
+- **Postgres major version — currently MISMATCHED, unresolved.** The `db`
+  image is pinned to Postgres 15 (`POSTGIS_LOCAL_IMAGE`). The linked
+  hosted project runs **17.6**, verified 2026-08-16 by connecting and
+  running `show server_version` rather than reading it off the dashboard.
+  This section previously said "confirm against the Supabase project's
+  reported version" and that confirmation had never actually been done.
+
+  A migration is therefore being validated against a database one major
+  version behind production. Nothing has broken yet — the schema uses no
+  16/17-only syntax — but that is luck, not a guarantee, and it is exactly
+  the failure mode this container exists to prevent.
+
+  Closing it means bumping `POSTGIS_LOCAL_IMAGE` to a `postgis/postgis:17-*`
+  tag in `compose.yaml`, `docs/PROJECT_PLAN.md` §14, and the CI service
+  container together, plus `pnpm docker:db:nuke` locally (a 15 data
+  directory will not start under 17). Deliberately left as its own change
+  rather than folded into the RBAC/local-stack work, because it touches
+  CI. **The local Supabase stack (below) is already on 17 and matches
+  production** — prefer it for anything where the version could matter.
 - **PostGIS version** — pinned to 3.4. Spatial function behavior and index
   planning can differ across majors.
 - **Extensions** — the container enables `postgis` and `pgcrypto` only.
@@ -102,11 +121,117 @@ holds while the versions match. Before relying on a local verification:
   the init script will pass locally and fail on deploy.
 - **RLS is enforced identically**, but the container has no Supabase Auth,
   so `auth.uid()`-based policies cannot be exercised end-to-end here. Use
-  the Supabase CLI's local stack or a real project for those.
+  the local Supabase stack below, or a real project, for those.
 
 A version bump is a deliberate change to the pins in
 `docs/PROJECT_PLAN.md` §14, `compose.yaml`, and the CI service container,
 in one PR.
+
+## The local Supabase stack (ADR-014)
+
+**This is the target when you are running the app**, as opposed to
+iterating on schema SQL. The `db` container above speaks Postgres and
+nothing else — but `apps/api` talks to **PostgREST**, and `apps/web` talks
+to **GoTrue** and **Realtime**. So without this stack, a locally running
+app reaches the *hosted* Supabase project no matter how many local
+containers are up, including under `pnpm docker:apps`. ADR-014 has the
+full reasoning.
+
+`supabase start` is itself a Docker orchestrator — it runs Postgres +
+PostGIS, PostgREST, GoTrue, Realtime, Storage, and Kong as containers on
+your local daemon.
+
+```bash
+pnpm docker:supabase          # start, then print the env values to copy
+pnpm docker:supabase:status   # keys + ports, without starting anything
+pnpm docker:supabase:stop     # stop, keep the data
+pnpm docker:supabase:nuke     # stop and DELETE the local data
+```
+
+First run pulls roughly 3 GB of images. Subsequent starts take under a
+minute.
+
+> **Known blocker: Supabase CLI 2.114 hangs on Windows + Docker Desktop
+> (unresolved, 2026-08-16).** All ten images pull successfully and
+> `supabase_db_avash` is **created** with the correct settings from
+> `config.toml` (verified: image
+> `public.ecr.aws/supabase/postgres:17.6.1.155`, host port `54329`) — but
+> the CLI then hangs indefinitely at `Starting database...` and never
+> transitions the container to running. No error is emitted, including
+> under `--debug`; `--ignore-health-check` does not help, because the
+> health check is never reached. Started by hand with `docker start
+> supabase_db_avash`, the container initializes and reports healthy in
+> about a minute, but a subsequent `supabase start` then short-circuits —
+> it treats the stack as already up and reports every other service as
+> stopped without starting them.
+>
+> Not a configuration fault: the config parses, and the container the CLI
+> creates reflects it exactly. This is a Windows-specific CLI/Docker
+> Desktop interaction — worth retrying after a CLI or Docker Desktop
+> upgrade, and worth checking against a Linux or macOS host before
+> assuming the config is at fault. **Until it is resolved, the local
+> Supabase stack is configured and documented but not yet verified
+> end to end**, and local runs still reach the hosted project.
+
+| Service | URL |
+| --- | --- |
+| API gateway (PostgREST + GoTrue + Realtime) | `http://127.0.0.1:54321` |
+| Postgres | `postgresql://postgres:postgres@127.0.0.1:54329/postgres` |
+| Studio | `http://127.0.0.1:54323` |
+| Inbucket (catches sign-up emails) | `http://127.0.0.1:54324` |
+
+Ports are deliberately clear of the `db` container's `54322`, so both
+local databases can run side by side.
+
+### Pointing the apps at it
+
+`pnpm docker:supabase` prints the exact block to paste. Nothing in any app
+branches on the target — the switch is entirely by value:
+
+| File | Local | Deployed |
+| --- | --- | --- |
+| `apps/web/.env` | `VITE_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321` + local anon key | hosted URL + anon key, set in Cloudflare Pages build settings |
+| `apps/api/.dev.vars` | `SUPABASE_URL=http://127.0.0.1:54321` + local service-role key + local JWT secret | `wrangler secret put` per environment |
+| repo-root `.env` | same three values (jobs, `ml/`, and the `api` container) | GitHub Actions secrets |
+| repo-root `.env` | `DATABASE_URL_LOCAL=postgresql://postgres:postgres@127.0.0.1:54329/postgres` | `DATABASE_URL_HOSTED`, only with `--hosted` |
+
+The CLI's anon/service-role/JWT values are its **fixed local demo keys** —
+identical on every machine, published in Supabase's own docs, and
+worthless against anything but this stack. They are not secrets. Keep your
+hosted values somewhere before overwriting them.
+
+### Migrations and seed data
+
+`supabase start` applies `packages/db/supabase/migrations/` itself on a
+fresh database — the same files, in the same order, that `pnpm db:migrate`
+and `supabase db push` use. There is one set of migrations, never a
+local-only variant.
+
+```bash
+pnpm db:seed                                              # regions, hospitals, cases
+pnpm role:grant -- --email you@example.com --role admin   # after signing up in the app
+```
+
+`supabase db reset` (from `packages/db`) drops and re-applies everything
+when you want a clean slate without re-pulling images.
+
+### Parity notes specific to this stack
+
+- The CLI pins its **own** Postgres version, independently of
+  `POSTGIS_LOCAL_IMAGE`. `major_version` in
+  `packages/db/supabase/config.toml` is set to 15 to match; if the hosted
+  project is upgraded, that value has to move with it.
+- `enable_confirmations = false` is set **locally only**, so a test
+  account is usable the moment it is created. The hosted project keeps
+  email confirmation on — `supabase db push` pushes migrations, never
+  `config.toml`.
+- Always invoke the CLI through the repo's pinned devDependency (which
+  `pnpm docker:supabase` does). A globally installed `supabase` drifts
+  per machine.
+- `docker/postgis/initdb/01-auth-shim.sql` is **not** used by this stack
+  and never should be — GoTrue owns the real `auth` schema here. The shim
+  remains scoped to the plain `db` container, for policy-shape testing
+  only.
 
 ## The ML runtime
 

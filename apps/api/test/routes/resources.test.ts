@@ -227,7 +227,7 @@ describe('PATCH /api/resources/blood/:id', () => {
   });
 
   test('authenticated, wildly implausible units → 400', async () => {
-    const token = await signTestJwt({});
+    const token = await signTestJwt({ role: 'hospital_staff' });
     const res = await buildApp().request(
       `/blood/${INVENTORY_ID}`,
       {
@@ -241,7 +241,7 @@ describe('PATCH /api/resources/blood/:id', () => {
   });
 
   test('authenticated, negative units → 400', async () => {
-    const token = await signTestJwt({});
+    const token = await signTestJwt({ role: 'hospital_staff' });
     const res = await buildApp().request(
       `/blood/${INVENTORY_ID}`,
       {
@@ -255,7 +255,7 @@ describe('PATCH /api/resources/blood/:id', () => {
   });
 
   test('authenticated, malformed id → 400, not a database error', async () => {
-    const token = await signTestJwt({});
+    const token = await signTestJwt({ role: 'hospital_staff' });
     const res = await buildApp().request(
       '/blood/not-a-uuid',
       {
@@ -268,9 +268,56 @@ describe('PATCH /api/resources/blood/:id', () => {
     expect(res.status).toBe(400);
   });
 
+  test('a citizen WITH a verified_hospital_staff row → 403 — the role claim gates before the row lookup', async () => {
+    // The membership row exists and matches the target hospital, so the
+    // handler's own staff check would pass. The request is refused anyway
+    // because the token carries no `inventory:write` capability — this is
+    // what makes revoking someone's hospital_staff role take effect
+    // immediately, without having to also delete their membership rows.
+    const userId = '44444444-4444-4444-8444-444444444444';
+    const token = await signTestJwt({ sub: userId, role: 'citizen' });
+    const fake = createFakeSupabase([
+      {
+        path: '/rest/v1/blood_inventory',
+        match: (_sp, method) => method === 'GET',
+        body: [{ id: 1, hospital_id: HOSPITAL_X }],
+      },
+      {
+        path: '/rest/v1/verified_hospital_staff',
+        body: [{ user_id: userId, hospital_id: HOSPITAL_X }],
+      },
+    ]);
+    vi.stubGlobal('fetch', fake.fetch);
+
+    const res = await buildApp().request(
+      `/blood/${INVENTORY_ID}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ unitsAvailable: 5, plateletUnits: 1 }),
+      },
+      fakeBindings()
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test('a moderator cannot write inventory — the roles are disjoint, not ranked', async () => {
+    const token = await signTestJwt({ role: 'moderator' });
+    const res = await buildApp().request(
+      `/blood/${INVENTORY_ID}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ unitsAvailable: 5, plateletUnits: 1 }),
+      },
+      fakeBindings()
+    );
+    expect(res.status).toBe(403);
+  });
+
   test('authenticated non-staff (no verified_hospital_staff row anywhere) → 403', async () => {
     const userId = '44444444-4444-4444-8444-444444444444';
-    const token = await signTestJwt({ sub: userId });
+    const token = await signTestJwt({ sub: userId, role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',
@@ -300,7 +347,7 @@ describe('PATCH /api/resources/blood/:id', () => {
     // user staff somewhere" — a bypass here would let any verified staff
     // member edit any hospital's blood stock.
     const userId = '55555555-5555-4555-8555-555555555555';
-    const token = await signTestJwt({ sub: userId });
+    const token = await signTestJwt({ sub: userId, role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',
@@ -331,7 +378,7 @@ describe('PATCH /api/resources/blood/:id', () => {
 
   test('valid staff update → 200 with updated_by set, schema-valid body', async () => {
     const userId = '66666666-6666-4666-8666-666666666666';
-    const token = await signTestJwt({ sub: userId });
+    const token = await signTestJwt({ sub: userId, role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',
@@ -379,7 +426,7 @@ describe('PATCH /api/resources/blood/:id', () => {
   });
 
   test('target inventory row does not exist → 404', async () => {
-    const token = await signTestJwt({});
+    const token = await signTestJwt({ role: 'hospital_staff' });
     const fake = createFakeSupabase([
       { path: '/rest/v1/blood_inventory', match: (_sp, method) => method === 'GET', body: [] },
     ]);
@@ -398,7 +445,7 @@ describe('PATCH /api/resources/blood/:id', () => {
   });
 
   test('inventory read fails → 503', async () => {
-    const token = await signTestJwt({});
+    const token = await signTestJwt({ role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',
@@ -422,7 +469,7 @@ describe('PATCH /api/resources/blood/:id', () => {
   });
 
   test('staff read fails → 503', async () => {
-    const token = await signTestJwt({});
+    const token = await signTestJwt({ role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',
@@ -447,7 +494,7 @@ describe('PATCH /api/resources/blood/:id', () => {
 
   test('the update itself fails → 503', async () => {
     const userId = '88888888-8888-4888-8888-888888888888';
-    const token = await signTestJwt({ sub: userId });
+    const token = await signTestJwt({ sub: userId, role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',
@@ -481,7 +528,7 @@ describe('PATCH /api/resources/blood/:id', () => {
 
   test('the update reports no error but returns no row → 404', async () => {
     const userId = '12121212-1212-4121-8121-121212121212';
-    const token = await signTestJwt({ sub: userId });
+    const token = await signTestJwt({ sub: userId, role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',
@@ -514,7 +561,7 @@ describe('PATCH /api/resources/blood/:id', () => {
 
   test('the post-update hospital lookup fails → 503', async () => {
     const userId = '99999999-9999-4999-8999-999999999999';
-    const token = await signTestJwt({ sub: userId });
+    const token = await signTestJwt({ sub: userId, role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',
@@ -558,7 +605,7 @@ describe('PATCH /api/resources/blood/:id', () => {
 
   test('the post-update hospital lookup comes back empty: 200 with a placeholder hospital shape', async () => {
     const userId = '10101010-1010-4101-8101-101010101010';
-    const token = await signTestJwt({ sub: userId });
+    const token = await signTestJwt({ sub: userId, role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',
@@ -606,7 +653,7 @@ describe('PATCH /api/resources/blood/:id', () => {
   });
 
   test('an unexpected failure building the Supabase client (invalid SUPABASE_URL) → 503', async () => {
-    const token = await signTestJwt({});
+    const token = await signTestJwt({ role: 'hospital_staff' });
     const res = await buildApp().request(
       `/blood/${INVENTORY_ID}`,
       {
@@ -620,7 +667,7 @@ describe('PATCH /api/resources/blood/:id', () => {
   });
 
   test('rate limit exceeded → 429', async () => {
-    const token = await signTestJwt({ sub: '77777777-7777-4777-8777-777777777777' });
+    const token = await signTestJwt({ sub: '77777777-7777-4777-8777-777777777777', role: 'hospital_staff' });
     const fake = createFakeSupabase([
       {
         path: '/rest/v1/blood_inventory',

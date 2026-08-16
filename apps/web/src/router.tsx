@@ -13,6 +13,8 @@ const SymptomChecker = lazy(() => import('./pages/SymptomChecker'));
 const Report = lazy(() => import('./pages/Report'));
 const Resources = lazy(() => import('./pages/Resources'));
 const Moderation = lazy(() => import('./pages/Moderation'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const AdminUsers = lazy(() => import('./pages/admin/Users'));
 
 export const router = createBrowserRouter([
   {
@@ -75,11 +77,35 @@ export const router = createBrowserRouter([
         errorElement: <RouteError />,
       },
       {
+        // No role or capability requirement — every signed-in user has a
+        // dashboard; which tiles it shows is the page's own concern.
+        path: 'dashboard',
+        element: (
+          <ProtectedRoute>
+            <Suspense fallback={null}>
+              <Dashboard />
+            </Suspense>
+          </ProtectedRoute>
+        ),
+        errorElement: <RouteError />,
+      },
+      {
         path: 'moderation',
         element: (
-          <ProtectedRoute role="moderator">
+          <ProtectedRoute capability="reports:moderate">
             <Suspense fallback={null}>
               <Moderation />
+            </Suspense>
+          </ProtectedRoute>
+        ),
+        errorElement: <RouteError />,
+      },
+      {
+        path: 'admin/users',
+        element: (
+          <ProtectedRoute capability="roles:manage">
+            <Suspense fallback={null}>
+              <AdminUsers />
             </Suspense>
           </ProtectedRoute>
         ),

@@ -29,6 +29,12 @@ export const BREEDING_REPORT_RATE_LIMIT = { perMinute: 5, perDay: 20 } as const;
 export const SYMPTOM_CHECK_RATE_LIMIT = { perMinute: 10, perDay: 50 } as const;
 export const BLOOD_UPDATE_RATE_LIMIT = { perMinute: 10 } as const;
 export const REPORT_VERIFY_RATE_LIMIT = { perMinute: 20 } as const;
+/**
+ * Low on purpose. Role administration is a rare, deliberate human action;
+ * a burst of them is either a mistake or a compromised admin session, and
+ * either way slowing it down is the right response.
+ */
+export const ROLE_ASSIGNMENT_RATE_LIMIT = { perMinute: 10 } as const;
 
 export type RateLimitWindow = 'minute' | 'day';
 

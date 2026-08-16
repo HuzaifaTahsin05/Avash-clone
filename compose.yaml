@@ -93,10 +93,20 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      # Every VITE_PUBLIC_* value the bundle needs must be a BUILD ARG.
+      # Vite inlines `import.meta.env.VITE_PUBLIC_*` at build time, so the
+      # runtime container is plain nginx serving static files — an
+      # `environment:` entry here reaches no JavaScript and silently leaves
+      # the compiled-in value empty. apps/web/src/lib/env.ts then throws on
+      # module load and the page renders blank.
       args:
         # Compiled into the bundle AND into the served CSP. Must be the
         # origin a browser can actually reach the api container on.
         VITE_PUBLIC_API_BASE_URL: ${VITE_PUBLIC_API_BASE_URL:-http://localhost:8787}
+        VITE_PUBLIC_SUPABASE_URL: ${VITE_PUBLIC_SUPABASE_URL:-}
+        VITE_PUBLIC_SUPABASE_ANON_KEY: ${VITE_PUBLIC_SUPABASE_ANON_KEY:-}
+        VITE_PUBLIC_TURNSTILE_SITE_KEY: ${VITE_PUBLIC_TURNSTILE_SITE_KEY:-}
+        VITE_PUBLIC_VAPID_PUBLIC_KEY: ${VITE_PUBLIC_VAPID_PUBLIC_KEY:-}
     image: avash-web:local
     ports:
       - "127.0.0.1:${WEB_PORT:-8080}:8080"
