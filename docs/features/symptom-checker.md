@@ -99,7 +99,7 @@ outcome, every time, whether or not Gemini ran or succeeded.
 | `SYMPTOM_TEXT_MAX_CHARS` | 500 | `packages/types/api.ts` | free-text input cap, enforced by both the schema and the textarea's `maxLength` |
 | `SYMPTOM_CHECK_RATE_LIMIT` | 10/min, 50/day per IP | `packages/security/rateLimit.ts` | Gemini cost control at the route boundary |
 | `GEMINI_DAILY_QUOTA_GUARD` | 1500/day | `packages/security/quotaGuard.ts` | global circuit breaker across all Gemini-calling routes |
-| `GEMINI_MODEL_ID` / `GEMINI_REQUEST_TIMEOUT_MS` | `gemini-2.5-flash` / 5000 | `apps/api/src/lib/geminiClient.ts` | model pin + bounded request latency |
+| `GEMINI_MODEL_ID` / `GEMINI_REQUEST_TIMEOUT_MS` | `gemini-3.1-flash-lite` / 5000 | `apps/api/src/lib/geminiClient.ts` | model pin + bounded request latency |
 
 **Security Considerations:**
 
@@ -149,6 +149,44 @@ STRIDE analysis, mirrored into `docs/security/threat-model.md`:
 | Quota-guard Redis call fails | Same as above — treated identically to "exhausted" per the brief, not distinguished to the client |
 | Gemini HTTP error / timeout / malformed JSON / schema mismatch | `callGeminiStructured` returns `{ ok: false }`; same deterministic fallback; never a 500, never retried |
 | Rate limit (10/min or 50/day) exceeded | `429` before the body is even parsed — the same fail-closed behavior as every other rate-limited route in this codebase |
+
+**Two defects found and fixed after this slice originally shipped
+(2026-08-16), both of which meant AI assist had never actually run.**
+Neither was visible from the UI, because the fallback path is by design
+indistinguishable from "the user typed nothing": the deterministic engine
+still returns a correct outcome, so the only symptom was
+`aiAssistAvailable` silently staying `false`.
+
+1. **`GEMINI_MODEL_ID` pointed at a retired model.** `gemini-2.5-flash`
+   is still listed by `GET /v1beta/models` but answers 404 *"no longer
+   available to new users"* on every `generateContent`. Repointed to
+   `gemini-3.1-flash-lite` (a pin, not the `gemini-flash-latest` alias — an
+   alias moves under us, which is the same bug on someone else's
+   schedule).
+2. **The `responseSchema` was never valid.** Gemini accepts a restricted
+   OpenAPI 3.0 subset, not full JSON Schema, and `z.toJSONSchema()` emits
+   `$schema` and `additionalProperties`, either of which is a 400. This
+   predates the model retirement — the 404 was simply masking it.
+   `geminiClient.ts` now sanitizes the generated schema (recursively, so
+   nested objects and array `items` are covered too) before sending, and
+   `apps/api/test/lib/geminiClient.test.ts` asserts neither key can
+   reappear.
+
+3. **The obvious replacement was too slow.** `gemini-3.5-flash` was
+   tried first and measured at **14–30s** per call — it reasons before
+   answering. That exceeds `GEMINI_REQUEST_TIMEOUT_MS` (5s) and the
+   browser's `API_CLIENT_TIMEOUT_MS` (8s), so every call simply traded
+   `gemini_http_400` for `gemini_timeout`. `gemini-3.1-flash-lite`
+   measures 1.3–1.5s on the same request and extracts the checklist
+   correctly, including the negative fields. Reasoning depth is not what
+   this call needs: under ADR-004 the model only maps text onto booleans
+   and never makes the triage decision.
+
+The reason all three hid for so long is that the route logged nothing on a
+Gemini failure. It now logs the fixed `reason` enum at `error`
+(`gemini_http_400`, `gemini_timeout`, …) — never symptom text, which is
+still never logged or persisted (§7.2). That log line is what turned an
+invisible degradation into a one-minute diagnosis.
 
 **Manual Test Log:**
 

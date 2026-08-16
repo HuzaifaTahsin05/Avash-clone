@@ -1,4 +1,4 @@
-<!-- agentsMdSha256: 5b6b572dee0c29a24b159fc74108f081db47229bd12d1f1aa7c19c773b3d1c3d -->
+<!-- agentsMdSha256: aba1f42f119ecb5ca660e921b6c85cae04d09c8e32109f7ae56fbd4aa6629b74 -->
 
 # Copilot Instructions — Avash
 
@@ -43,6 +43,7 @@ Load the row that matches the task — not the whole list.
 | write an implementation plan for a feature | `docs/standards/implementation-plans.md` |
 | touch a Dockerfile or `compose.yaml` | `docs/docker.md` |
 | secure a feature / fill in STRIDE | `docs/security/threat-model.md` |
+| gate anything on a user's role or permission | `docs/features/rbac.md` |
 | edit an agent config | `docs/standards/agent-compliance.md` |
 | pick up a defined role's scope + DoD | `.agents/task-contracts.json` |
 

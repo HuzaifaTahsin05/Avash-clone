@@ -98,6 +98,70 @@ describe('useSession / SessionProvider', () => {
     expect(latest?.role).toBe('moderator');
   });
 
+  test('an authenticated user with no role claim resolves to citizen, not null', async () => {
+    getSessionMock.mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'token-123',
+          user: { id: 'user-1', email: 'person@example.test', app_metadata: {} },
+        },
+      },
+    });
+    await mount();
+    expect(latest?.role).toBe('citizen');
+  });
+
+  test('an unrecognized role claim degrades to citizen rather than being trusted', async () => {
+    getSessionMock.mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'token-123',
+          user: { id: 'user-1', email: 'person@example.test', app_metadata: { role: 'superuser' } },
+        },
+      },
+    });
+    await mount();
+    expect(latest?.role).toBe('citizen');
+  });
+
+  test('a role claimed via user_metadata — which a signed-in user CAN write — is ignored', async () => {
+    getSessionMock.mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'token-123',
+          user: {
+            id: 'user-1',
+            email: 'person@example.test',
+            app_metadata: {},
+            user_metadata: { role: 'admin' },
+          },
+        },
+      },
+    });
+    await mount();
+    expect(latest?.role).toBe('citizen');
+  });
+
+  test('app_metadata.role = hospital_staff surfaces as role', async () => {
+    getSessionMock.mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'token-123',
+          user: { id: 'user-1', email: 'staff@example.test', app_metadata: { role: 'hospital_staff' } },
+        },
+      },
+    });
+    await mount();
+    expect(latest?.role).toBe('hospital_staff');
+  });
+
+  test('anonymous stays null-roled — never upgraded to citizen', async () => {
+    getSessionMock.mockResolvedValue({ data: { session: null } });
+    await mount();
+    expect(latest?.status).toBe('anonymous');
+    expect(latest?.role).toBeNull();
+  });
+
   test('a session object missing user entirely resolves to anonymous without throwing', async () => {
     getSessionMock.mockResolvedValue({ data: { session: {} } });
     await expect(mount()).resolves.not.toThrow();

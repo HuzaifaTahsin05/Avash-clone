@@ -19,7 +19,13 @@ export interface Bindings {
 export interface AuthenticatedUser {
   id: string;
   email: string | null;
-  role: AppRole | null;
+  /**
+   * Never null: `auth` only sets this after `jwtVerify` succeeds, and a
+   * verified token with no role claim resolves to `citizen`
+   * (`resolveAppRole`). Anonymity is expressed by `Variables.user` being
+   * absent, not by a null role here.
+   */
+  role: AppRole;
 }
 
 export interface Variables {

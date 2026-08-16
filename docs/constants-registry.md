@@ -54,7 +54,7 @@ only once the constant is actually wired into the code location listed.
 | `MAP_DEFAULT_ZOOM` | 7 | `apps/web/src/features/map/tileLayer.ts` | initial zoom — all seeded regions visible in one view | implemented |
 | `APP_ROLE_CLAIM_PATH` | `app_metadata.role` | migration `20260815000012_app_role_and_resource_reads.sql`, `packages/security/roles.ts` | where a custom role lives in a Supabase JWT — server-controlled, unlike `user_metadata` | implemented |
 | `JWT_CLOCK_TOLERANCE_S` | 60 | `apps/api/src/lib/jwtVerify.ts` | leeway for clock skew between Supabase's issuer and the Worker | implemented |
-| `GEMINI_MODEL_ID` | `gemini-2.5-flash` | `apps/api/src/lib/geminiClient.ts` | the one value to change when swapping Gemini models | implemented |
+| `GEMINI_MODEL_ID` | `gemini-3.1-flash-lite` | `apps/api/src/lib/geminiClient.ts` | the one value to change when swapping Gemini models | implemented |
 | `GEMINI_REQUEST_TIMEOUT_MS` | 5000 | `apps/api/src/lib/geminiClient.ts` | bounds a hung Gemini call inside the Worker's request budget | implemented |
 | `SYMPTOM_TEXT_MAX_CHARS` | 500 | `packages/types/api.ts` | §5.4 input length cap, prompt-injection surface reduction | implemented |
 | `REPORT_DESCRIPTION_MAX_CHARS` | 1000 | `packages/types/api.ts` | §5.4 input length cap | implemented |
@@ -64,6 +64,12 @@ only once the constant is actually wired into the code location listed.
 | `RESOURCE_SEARCH_RADIUS_DEFAULT_M` | 5000 (bounds 500–50,000) | `packages/types/api.ts`, `blood_within_radius()` | default/ceiling for the `ST_DWithin` blood search | implemented |
 | `HOSPITAL_RESULT_LIMIT` | 200 | `apps/api/src/routes/resources.ts` | caps a bbox or radius result set before it becomes a payload problem | implemented |
 | `RESOURCES_CACHE_TTL_S` | `s-maxage=60, swr=120` | `apps/api/src/routes/resources.ts` | short edge cache for the initial paint; live updates arrive via Realtime (ADR-010), so a long TTL would fight the ticker | implemented |
+| `AppRole` | `citizen \| hospital_staff \| moderator \| admin` | `packages/types/api.ts`, mirrored by `role_assignments`' check constraint | the four roles every layer recognizes; was `moderator \| admin` before the RBAC slice | implemented |
+| `DEFAULT_APP_ROLE` | `citizen` | `packages/types/api.ts`, `public.app_role()` | what a **verified** token with no role claim resolves to; anonymous stays `null`, deliberately | implemented |
+| `ROLE_CAPABILITIES` | see `docs/features/rbac.md` § grant table | `packages/security/roles.ts`, mirrored by `public.has_capability()` in migration `20260816000013` | the single authorization grant table — not a rank, since moderator and hospital_staff are disjoint | implemented |
+| `ROLE_ASSIGNMENT_RATE_LIMIT` | 10/min per user | `packages/security/rateLimit.ts` | role admin is a rare deliberate action; a burst is a mistake or a compromised admin session | implemented |
+| `ADMIN_USER_PAGE_SIZE` | 50 | `apps/api/src/routes/admin-users.ts` | bounds one page of the admin user list | implemented |
+| `SUPABASE_LOCAL_API_PORT` | 54321 (db 54329, studio 54323, inbucket 54324) | `packages/db/supabase/config.toml` | the containerized local Supabase stack (ADR-014); deliberately clear of the ADR-011 `db` container on 54322 so both can run | implemented |
 
 `CORS_ALLOWED_ORIGINS`'s value in `apps/api/wrangler.toml` is
 `https://avash.pages.dev` — the real Cloudflare Pages project domain
@@ -163,3 +169,21 @@ and the six report/resource constants
 (`REPORT_DESCRIPTION_MAX_CHARS`, `SPAM_LIKELIHOOD_REJECT_THRESHOLD`,
 `BLOOD_UNITS_MAX`, `RESOURCE_SEARCH_RADIUS_DEFAULT_M`,
 `HOSPITAL_RESULT_LIMIT`, `RESOURCES_CACHE_TTL_S`).
+
+The RBAC slice added seven rows, all `implemented` on arrival: `AppRole`,
+`DEFAULT_APP_ROLE`, `ROLE_CAPABILITIES`, `ROLE_ASSIGNMENT_RATE_LIMIT`,
+`ADMIN_USER_PAGE_SIZE`, and `SUPABASE_LOCAL_API_PORT` (ADR-014). It also
+**changed** an existing value: `GEMINI_MODEL_ID` moved from
+`gemini-2.5-flash` to `gemini-3.1-flash-lite`. Three compounding reasons,
+all found together: Google retired `gemini-2.5-flash` for new API
+consumers (still listed by `GET /v1beta/models`, 404 on every
+`generateContent`); the `responseSchema` being sent was never valid
+anyway (`z.toJSONSchema()` emits `$schema`/`additionalProperties`, which
+Gemini 400s — so the 404 was masking a second bug); and the obvious
+replacement, `gemini-3.5-flash`, measured 14–30s per call because it
+reasons before answering, blowing both `GEMINI_REQUEST_TIMEOUT_MS` (5s)
+and `API_CLIENT_TIMEOUT_MS` (8s). The `-lite` pin measures 1.3–1.5s.
+Both Gemini-assisted features had therefore been silently running in
+their fallback mode since they shipped. `AppRole` is the second
+value change: `moderator | admin` → the four-role set, with `citizen`
+becoming a real assignable value rather than an absence.

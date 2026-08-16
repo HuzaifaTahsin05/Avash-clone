@@ -7,7 +7,7 @@ import {
   type SymptomChecklist,
   type TriageOutcome,
 } from '@avash/types';
-import { buildGenericErrorBody, withErrorBoundary } from '@avash/logger';
+import { buildGenericErrorBody, logger, withErrorBoundary } from '@avash/logger';
 import {
   SYMPTOM_CHECK_RATE_LIMIT,
   consumeGeminiQuota,
@@ -126,11 +126,27 @@ export function createSymptomCheck(options?: CreateSymptomCheckOptions) {
             responseSchema: symptomChecklistSchema,
           });
           // A `{ ok: false }` result is itself the deterministic fallback —
-          // never a 500, never a retry (ADR-004 / brief step 3).
+          // never a 500, never a retry (ADR-004 / brief step 3). It is
+          // still logged: an unreachable or retired model degrades this
+          // route silently and identically to "user typed nothing", and
+          // without this line the only symptom is `aiAssistAvailable`
+          // quietly staying false forever. `reason` is a fixed enum from
+          // geminiClient.ts, never model output and never request content
+          // (§7.2 — no symptom text is ever logged).
           if (geminiResult.ok) {
             inferredChecklist = geminiResult.data;
             aiAssistAvailable = true;
+          } else {
+            logger.error('symptom-check: Gemini assist unavailable, falling back to the client checklist', {
+              requestId,
+              reason: geminiResult.reason,
+            });
           }
+        } else {
+          logger.warn('symptom-check: Gemini quota guard closed, skipping AI assist', {
+            requestId,
+            reason: quota.ok ? 'quota_exhausted' : 'quota_guard_unreachable',
+          });
         }
         // Quota exhausted, or the guard call itself failed (Redis
         // unreachable): skip the LLM and fall through with whatever

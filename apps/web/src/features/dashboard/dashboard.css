@@ -1,0 +1,46 @@
+/* Dashboard tile grid. Sits on the shared .card primitive from
+   styles/global.css — only layout and the link treatment live here. */
+
+.dashboard__tiles {
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+  /* Single column until there is room for two full tiles; no fixed
+     breakpoint, so it also behaves inside a narrow embedded viewport. */
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+}
+
+.dashboard__tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.dashboard__tile-link {
+  font-weight: 600;
+  font-size: 1.0625rem;
+  text-decoration: none;
+}
+
+.dashboard__tile-link:hover,
+.dashboard__tile-link:focus-visible {
+  text-decoration: underline;
+}
+
+.dashboard__tile-description {
+  margin: 0;
+  font-size: 0.9375rem;
+  opacity: 0.8;
+}
+
+/* Admin users table — the role <select> needs to not stretch to the
+   column width, which is the table cell's default for a form control. */
+.admin-users__role-select {
+  min-width: 11rem;
+}
+
+.admin-users__row--self td {
+  font-style: italic;
+}

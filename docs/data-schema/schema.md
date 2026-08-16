@@ -271,6 +271,35 @@ can influence anything public-facing.
 
 ---
 
+## `role_assignments`
+
+Append-only audit trail for role grants
+(`20260816000013_rbac_roles_and_audit.sql`, `docs/features/rbac.md`).
+Added after the original §4 schema, which had no role-assignment concept
+at all. It records history and never gates a request —
+`app_metadata.role` on the Supabase auth user remains the sole
+authorization source.
+
+| Column | Type | Constraints | Meaning |
+|---|---|---|---|
+| `id` | `bigint` | PK, identity | Row id |
+| `user_id` | `uuid` | FK → `auth.users(id)`, not null | Whose role changed |
+| `previous_role` | `text` | check ∈ the four roles, nullable | What was replaced; null when there was no explicit claim |
+| `new_role` | `text` | check ∈ the four roles, not null | What was granted |
+| `assigned_by` | `uuid` | FK → `auth.users(id)`, nullable | The acting admin; **null means granted out of band** via `scripts/grant-role.ts` |
+| `reason` | `text` | nullable | Free-text justification from the admin |
+| `created_at` | `timestamptz` | not null, default `now()` | When |
+
+**Indexes:** `idx_role_assignments_user_created (user_id, created_at desc)` —
+the per-user drill-down is the only read pattern.
+
+**Foreign keys:** `user_id → auth.users(id)` `on delete cascade on update
+cascade`; `assigned_by → auth.users(id)` `on delete set null on update
+cascade` — deliberately **not** cascade, so an audit row survives the
+granting admin's account being deleted (§4.3).
+
+---
+
 ## 4.1 Row Level Security (representative policies)
 
 Full detail and every operation for every table lives in
@@ -280,14 +309,19 @@ Full detail and every operation for every table lives in
 |---|---|---|
 | `breeding_reports` | insert | any role (incl. `anon`) — abuse handled by rate-limit + Turnstile in `apps/api`, not RLS |
 | `breeding_reports` | select | `status = 'verified'` OR `reporter_id = auth.uid()` |
-| `breeding_reports` | update | only `role() in ('moderator','admin')` |
+| `breeding_reports` | update | `public.has_capability('reports:moderate')` |
 | `blood_inventory` | select | public (`anon`) — required for direct Realtime subscription (ADR-010) |
-| `blood_inventory` | update | `auth.uid() in (select user_id from verified_hospital_staff where hospital_id = blood_inventory.hospital_id)` |
+| `blood_inventory` | update | `public.has_capability('inventory:write')` **and** `auth.uid() in (select user_id from verified_hospital_staff where hospital_id = blood_inventory.hospital_id)` |
 | `alert_subscriptions`, `push_subscriptions` | all | `user_id = auth.uid()` only |
 | `risk_predictions`, `hospitals` (select) | select | public (`anon`) |
+| `role_assignments` | select | `public.has_capability('roles:manage')`; no update or delete policy at all |
 
 RLS is **on** for every table by default; a table without RLS enabled must
-have an ADR justifying it.
+have an ADR justifying it. `public.has_capability()` is the SQL mirror of
+`ROLE_CAPABILITIES` (`packages/security/roles.ts`) — see
+`docs/features/rbac.md`. It replaced the role-name lists that
+`20260815000012` had itself introduced to replace the original,
+always-false `auth.role() in (...)` predicates (§4.1 amendment).
 
 ## 4.2 Indexing & Query Discipline
 

@@ -66,6 +66,7 @@ about to do, then act.
 | touch a Dockerfile or `compose.yaml` | `docs/docker.md` |
 | write an implementation plan for a feature | `docs/standards/implementation-plans.md` |
 | secure a feature / fill in STRIDE | `docs/security/threat-model.md` |
+| gate anything on a user's role or permission | `docs/features/rbac.md` |
 | edit any agent config or hook | `docs/standards/agent-compliance.md` |
 | pick up a defined role's scope + DoD | `.agents/task-contracts.json` |
 

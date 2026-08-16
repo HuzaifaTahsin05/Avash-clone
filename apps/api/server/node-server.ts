@@ -16,33 +16,54 @@ const DEFAULT_PORT = 8787;
 
 /**
  * Deploy-time config read on every request. A missing value here is a
- * misconfiguration, not a degraded mode: an empty CORS allow-list rejects
- * every browser origin, which is a miserable failure to diagnose from
- * outside the container.
+ * misconfiguration, not a degraded mode, and the container refuses to
+ * start rather than answering wrongly.
+ *
+ * `CORS_ALLOWED_ORIGINS`: an empty allow-list rejects every browser
+ * origin, which is a miserable failure to diagnose from outside the
+ * container.
+ *
+ * The rest are secrets whose absence fails CLOSED inside a guard rather
+ * than surfacing as a config error. Both of those guards return a generic
+ * body (R10), so from the browser an unset secret is indistinguishable
+ * from a real rejection:
+ *   - `UPSTASH_REDIS_REST_*` — packages/security/rateLimit.ts cannot
+ *     consult a limiter it cannot reach, so every symptom check and every
+ *     breeding-site report 429s.
+ *   - `TURNSTILE_SECRET_KEY` — siteverify answers `invalid-input-secret`,
+ *     so every breeding-site report 403s.
+ *   - `SUPABASE_*` — every read and write against PostgREST fails, and
+ *     `GET /health/db` reports `ready: false`.
+ * Starting a container that answers `/health` with 200 while every write
+ * path is dead is worse than not starting, so these are required too.
  */
-const REQUIRED_VARS = ['CORS_ALLOWED_ORIGINS'] as const;
-
-/**
- * Secrets. No route consumes one yet, so they default to empty and the
- * image still answers /health without a full secret set. The startup log
- * names the unset ones so an operator learns it here instead of from a
- * 500 later.
- */
-const OPTIONAL_VARS = [
+const REQUIRED_VARS = [
+  'CORS_ALLOWED_ORIGINS',
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
   'SUPABASE_JWT_SECRET',
-  'GEMINI_API_KEY',
   'UPSTASH_REDIS_REST_URL',
   'UPSTASH_REDIS_REST_TOKEN',
   'TURNSTILE_SECRET_KEY',
 ] as const;
 
+/**
+ * Genuinely degradable. `GEMINI_API_KEY` absent means the symptom checker
+ * still returns a triage outcome from the checklist alone
+ * (`aiAssistAvailable: false`, ADR-004) and a breeding report is still
+ * accepted, just flagged for manual review — both are designed fallbacks,
+ * not failures. The startup log names it so an operator learns it here
+ * rather than wondering why AI assist never appears.
+ */
+const OPTIONAL_VARS = ['GEMINI_API_KEY'] as const;
+
 function readBindings(): Bindings {
   const missing = REQUIRED_VARS.filter((name) => !process.env[name]);
   if (missing.length > 0) {
     throw new Error(
-      `Missing required environment variable(s): ${missing.join(', ')}. See docs/security/secrets-matrix.md.`
+      `Missing required environment variable(s): ${missing.join(', ')}. ` +
+        'compose.yaml forwards these into the api service from the repo-root .env — ' +
+        'copy .env.example to .env and fill them in. See docs/security/secrets-matrix.md.'
     );
   }
 
@@ -51,7 +72,7 @@ function readBindings(): Bindings {
     console.warn(
       JSON.stringify({
         level: 'warn',
-        message: 'Starting with unset optional environment variables',
+        message: 'Starting with unset optional environment variables — the features they back run in their documented fallback mode',
         variables: unset,
       })
     );

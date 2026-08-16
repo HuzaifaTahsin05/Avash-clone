@@ -150,9 +150,54 @@ export type RiskDetailResponse = z.infer<typeof riskDetailResponseSchema>;
 export const bloodGroupSchema = z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']);
 export const latitudeSchema = z.number().min(-90).max(90);
 export const longitudeSchema = z.number().min(-180).max(180);
-export const appRoleSchema = z.enum(['moderator', 'admin']);
+/**
+ * The four application roles. Deliberately NOT a rank ordering — a
+ * moderator is not "a hospital_staff plus more", so authorization is
+ * expressed as capabilities (packages/security/roles.ts), never as a
+ * numeric level comparison. `citizen` is the role every signed-in user
+ * without an explicit grant resolves to; it is a real assignable value
+ * rather than an absence, so revoking a role is an assignment and shows
+ * up in the audit trail like any other.
+ */
+export const appRoleSchema = z.enum(['citizen', 'hospital_staff', 'moderator', 'admin']);
 
 export type AppRole = z.infer<typeof appRoleSchema>;
+
+/** What a signed-in user with no `app_metadata.role` claim is treated as. */
+export const DEFAULT_APP_ROLE = 'citizen' satisfies AppRole;
+
+// ── Role administration (admin-only) ──────────────────────────────────────
+
+export const roleAssignmentRequestSchema = z.object({
+  role: appRoleSchema,
+  /** Free-text justification, persisted to the audit trail. */
+  reason: z.string().max(280).optional(),
+});
+
+export const managedUserSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().nullable(),
+  role: appRoleSchema,
+  createdAt: z.string(),
+  lastSignInAt: z.string().nullable(),
+});
+
+export const managedUserListResponseSchema = z.object({
+  users: z.array(managedUserSchema),
+  /** Cursor for the next page, or null when this is the last one. */
+  nextPage: z.number().int().positive().nullable(),
+  requestId: z.string(),
+});
+
+export const roleAssignmentResponseSchema = z.object({
+  user: managedUserSchema,
+  requestId: z.string(),
+});
+
+export type RoleAssignmentRequest = z.infer<typeof roleAssignmentRequestSchema>;
+export type ManagedUser = z.infer<typeof managedUserSchema>;
+export type ManagedUserListResponse = z.infer<typeof managedUserListResponseSchema>;
+export type RoleAssignmentResponse = z.infer<typeof roleAssignmentResponseSchema>;
 
 // ── Symptom checker (§13 slice 4) ──────────────────────────────────────────
 

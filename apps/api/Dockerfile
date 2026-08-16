@@ -21,6 +21,14 @@ COPY . .
 RUN pnpm install --frozen-lockfile \
     && pnpm --filter api build:node
 
+# Fail here, not at `docker run`. An esbuild that exits 0 having written an
+# empty bundle produces a runtime image whose `node server.mjs` also exits
+# 0 — no logs, no listening port, just a container that restarts forever
+# and reports nothing. A byte count catches it while the build can still
+# fail.
+RUN test -s apps/api/dist-node/server.mjs \
+    || (echo "ERROR: apps/api/dist-node/server.mjs is empty — esbuild produced no output" && exit 1)
+
 FROM node:24.1.0-alpine3.20 AS runtime
 
 ENV NODE_ENV=production \

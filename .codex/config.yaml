@@ -4,7 +4,7 @@
 project: avash
 sourceOfTruth: docs/PROJECT_PLAN.md
 canonicalRules: AGENTS.md
-agentsMdSha256: 5b6b572dee0c29a24b159fc74108f081db47229bd12d1f1aa7c19c773b3d1c3d
+agentsMdSha256: aba1f42f119ecb5ca660e921b6c85cae04d09c8e32109f7ae56fbd4aa6629b74
 enforcement: docs/standards/agent-compliance.md
 language: typescript
 frameworks: [react, hono]
@@ -36,6 +36,7 @@ readBeforeYouAct:
   dockerfile-or-compose: docs/docker.md
   implementation-plan: docs/standards/implementation-plans.md
   threat-model: docs/security/threat-model.md
+  rbac-role-or-permission: docs/features/rbac.md
   agent-config: docs/standards/agent-compliance.md
   role-scope-and-dod: .agents/task-contracts.json
 

@@ -34,6 +34,51 @@ describe('callGeminiStructured', () => {
     expect((capturedBody?.generationConfig as { responseSchema?: unknown })?.responseSchema).toBeTruthy();
   });
 
+  test('responseSchema carries no key Gemini rejects — this exact 400 made AI assist silently dead', async () => {
+    // Gemini's responseSchema is a restricted OpenAPI 3.0 subset, not full
+    // JSON Schema. `z.toJSONSchema()` emits `$schema` and
+    // `additionalProperties`, and sending either answers 400. Because the
+    // client degrades to `{ ok: false }` by design, that 400 looked
+    // identical to "the user typed nothing" from every caller.
+    let capturedBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        capturedBody = JSON.parse(String(init?.body));
+        return geminiResponse(JSON.stringify({ isPlausible: true, category: 'container' }));
+      })
+    );
+
+    const nested = z.object({
+      isPlausible: z.boolean(),
+      category: z.string(),
+      tags: z.array(z.object({ name: z.string() })),
+    });
+
+    await callGeminiStructured({
+      apiKey: 'test-key',
+      systemInstruction: 'Fixed instruction.',
+      userContent: 'plain text',
+      responseSchema: nested,
+    });
+
+    const schema = (capturedBody?.generationConfig as { responseSchema?: unknown })?.responseSchema;
+    const serialized = JSON.stringify(schema);
+
+    expect(serialized).not.toContain('$schema');
+    expect(serialized).not.toContain('additionalProperties');
+
+    // Still a usable schema after stripping — not merely an empty object.
+    expect(schema).toMatchObject({
+      type: 'object',
+      required: ['isPlausible', 'category', 'tags'],
+    });
+    const properties = (schema as { properties?: Record<string, unknown> })?.properties;
+    expect(properties?.isPlausible).toEqual({ type: 'boolean' });
+    // The nested array's item schema is sanitized too, not just the root.
+    expect(properties?.tags).toMatchObject({ type: 'array', items: { type: 'object' } });
+  });
+
   test('an injection string in userContent appears only inside the delimited data block, never in the system instruction', async () => {
     let capturedBody: { systemInstruction?: { parts?: { text?: string }[] }; contents?: { parts?: { text?: string }[] }[] } | undefined;
     vi.stubGlobal(

@@ -37,12 +37,18 @@ function extractBearerToken(header: string | undefined): string | null {
  * missing/invalid/expired token must never 401 this route; it only ever
  * degrades to an anonymous (`null`) report.
  */
-async function extractOptionalReporterId(authHeader: string | undefined, jwtSecret: string): Promise<string | null> {
+async function extractOptionalReporterId(
+  authHeader: string | undefined,
+  env: Pick<Bindings, 'SUPABASE_JWT_SECRET' | 'SUPABASE_URL'>
+): Promise<string | null> {
   const token = extractBearerToken(authHeader);
   if (!token) {
     return null;
   }
-  const result = await jwtVerify(token, jwtSecret);
+  const result = await jwtVerify(token, {
+    secret: env?.SUPABASE_JWT_SECRET,
+    supabaseUrl: env?.SUPABASE_URL,
+  });
   if (!result.ok) {
     return null;
   }
@@ -94,7 +100,7 @@ export function createReports(options?: CreateReportsOptions) {
           return c.json(buildGenericErrorBody(requestId), 400);
         }
 
-        const reporterId = await extractOptionalReporterId(c.req.header('Authorization'), c.env.SUPABASE_JWT_SECRET);
+        const reporterId = await extractOptionalReporterId(c.req.header('Authorization'), c.env);
 
         let aiValidation: AiValidation = { isPlausible: true, category: 'other', spamLikelihood: 0 };
         const description = parsed.data.description;
@@ -148,7 +154,7 @@ export function createReports(options?: CreateReportsOptions) {
     )
     .patch(
       '/breeding-site/:id/verify',
-      auth({ role: 'moderator' }),
+      auth({ capability: 'reports:moderate' }),
       rateLimit({
         guard: 'report-verify',
         window: 'minute',
@@ -160,10 +166,10 @@ export function createReports(options?: CreateReportsOptions) {
       async (c) => {
         const requestId = c.get('requestId');
 
-        // Defense in depth (intentional, not dead code) — the `auth({ role:
-        // 'moderator' })` middleware above already gates this, but the
-        // handler re-checks so a future middleware refactor can't silently
-        // reopen this route.
+        // Defense in depth (intentional, not dead code) — the `auth({
+        // capability: 'reports:moderate' })` middleware above already gates
+        // this, but the handler re-checks so a future middleware refactor
+        // can't silently reopen this route.
         const user = c.get('user');
         if (!user || !isModerator(user.role)) {
           return c.json(buildGenericErrorBody(requestId), 403);

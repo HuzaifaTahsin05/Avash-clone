@@ -10,6 +10,7 @@ import { riskMap, riskDetail } from './routes/risk-map';
 import { symptomCheck } from './routes/symptom-check';
 import { reports } from './routes/reports';
 import { resources } from './routes/resources';
+import { adminUsers } from './routes/admin-users';
 
 const app = new Hono<AppEnv>();
 
@@ -36,6 +37,7 @@ app.route('/api/risk', riskDetail);
 app.route('/api/symptom-check', symptomCheck); // rate-limit, quota-guard
 app.route('/api/reports', reports); // turnstile+rate-limit (POST), auth+rate-limit (PATCH verify)
 app.route('/api/resources', resources); // public GETs; auth+rate-limit on PATCH blood/:id
+app.route('/api/admin/users', adminUsers); // auth(roles:manage)+rate-limit on every method
 
 app.notFound((c) => c.json(buildGenericErrorBody(c.get('requestId')), 404));
 

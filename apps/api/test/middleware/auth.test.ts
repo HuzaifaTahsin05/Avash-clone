@@ -46,15 +46,15 @@ describe('auth middleware', () => {
     expect(res.status).toBe(401);
   });
 
-  test('valid token, wrong role → 403', async () => {
-    const app = buildApp({ role: 'admin' });
+  test('valid token whose role lacks the capability → 403', async () => {
+    const app = buildApp({ capability: 'roles:manage' });
     const token = await signTestJwt({ role: 'moderator' });
     const res = await app.request('/protected', { headers: { Authorization: `Bearer ${token}` } }, env);
     expect(res.status).toBe(403);
   });
 
-  test('valid token, right role → handler runs and c.get("user") is populated', async () => {
-    const app = buildApp({ role: 'moderator' });
+  test('valid token with the capability → handler runs and c.get("user") is populated', async () => {
+    const app = buildApp({ capability: 'reports:moderate' });
     const token = await signTestJwt({ role: 'moderator' });
     const res = await app.request('/protected', { headers: { Authorization: `Bearer ${token}` } }, env);
     expect(res.status).toBe(200);
@@ -63,16 +63,57 @@ describe('auth middleware', () => {
     expect(body.role).toBe('moderator');
   });
 
-  test('no role requirement, any valid token passes', async () => {
+  test('admin satisfies a capability it holds only via the admin grant', async () => {
+    const app = buildApp({ capability: 'reports:moderate' });
+    const token = await signTestJwt({ role: 'admin' });
+    const res = await app.request('/protected', { headers: { Authorization: `Bearer ${token}` } }, env);
+    expect(res.status).toBe(200);
+  });
+
+  test('hospital_staff cannot reach a moderation capability', async () => {
+    const app = buildApp({ capability: 'reports:moderate' });
+    const token = await signTestJwt({ role: 'hospital_staff' });
+    const res = await app.request('/protected', { headers: { Authorization: `Bearer ${token}` } }, env);
+    expect(res.status).toBe(403);
+  });
+
+  test('moderator cannot reach inventory:write — the roles are disjoint, not ranked', async () => {
+    const app = buildApp({ capability: 'inventory:write' });
+    const token = await signTestJwt({ role: 'moderator' });
+    const res = await app.request('/protected', { headers: { Authorization: `Bearer ${token}` } }, env);
+    expect(res.status).toBe(403);
+  });
+
+  test('no capability requirement, any valid token passes', async () => {
     const app = buildApp();
     const token = await signTestJwt({});
     const res = await app.request('/protected', { headers: { Authorization: `Bearer ${token}` } }, env);
     expect(res.status).toBe(200);
   });
 
+  test('verified token with no role claim resolves to citizen, not null', async () => {
+    const app = buildApp();
+    const token = await signTestJwt({});
+    const res = await app.request('/protected', { headers: { Authorization: `Bearer ${token}` } }, env);
+    const body = (await res.json()) as { role: string };
+    expect(body.role).toBe('citizen');
+  });
+
+  test('citizen holds no capability at all', async () => {
+    const token = await signTestJwt({});
+    for (const capability of ['reports:moderate', 'inventory:write', 'roles:manage'] as const) {
+      const res = await buildApp({ capability }).request(
+        '/protected',
+        { headers: { Authorization: `Bearer ${token}` } },
+        env
+      );
+      expect(res.status).toBe(403);
+    }
+  });
+
   test('401 and 403 bodies never differ by message, only by status', async () => {
     const noTokenApp = buildApp();
-    const wrongRoleApp = buildApp({ role: 'admin' });
+    const wrongRoleApp = buildApp({ capability: 'roles:manage' });
     const token = await signTestJwt({ role: 'moderator' });
 
     const res401 = await noTokenApp.request('/protected', {}, env);
