@@ -1,43 +1,70 @@
-import { createContext, useContext, type ReactNode } from 'react';
-import type { AppRole } from '@avash/security';
+import { useEffect, useState, type ReactNode } from 'react';
+import { readAppRole } from '@avash/security';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from '../../lib/supabaseClient';
+import { SessionContext, initialSessionValue, type SessionContextValue } from './useSession';
 
-export type SessionStatus = 'loading' | 'authenticated' | 'anonymous';
+// Header.tsx (Phase-0-owned) imports useSession from this module — keep
+// re-exporting it here rather than moving callers over to useSession.ts.
+export { useSession } from './useSession';
+export type { SessionContextValue, SessionStatus } from './useSession';
 
-export interface SessionContextValue {
-  /** Opaque — callers destructure via useSession(), never this context directly. */
-  session: unknown | null;
-  user: { id: string; email: string | null } | null;
-  role: AppRole | null;
-  accessToken: string | null;
-  status: SessionStatus;
+/**
+ * Every access into `session`/`user`/`app_metadata` is optional-chained
+ * (R4 #2) — the session object comes from a token this app does not fully
+ * control, and a malformed or partial shape must resolve to "anonymous",
+ * never throw.
+ */
+function deriveSessionState(session: Session | null | undefined): SessionContextValue {
+  const supaUser = session?.user;
+  if (!supaUser?.id) {
+    return { ...initialSessionValue, status: 'anonymous' };
+  }
+
+  return {
+    session: session ?? null,
+    user: { id: supaUser.id, email: supaUser?.email ?? null },
+    role: readAppRole(supaUser),
+    accessToken: session?.access_token ?? null,
+    status: 'authenticated',
+  };
 }
 
 /**
- * Frozen shape (Phase 0) so router.tsx and Header.tsx can be written
- * against it now. This provider is a pass-through stub — it always
- * reports `anonymous` and never touches Supabase. The real
- * getSession()/onAuthStateChange() wiring ships with the authentication
- * feature; only the body of this file changes then, not its exported
- * shape.
+ * Reads the current session via `supabase.auth.getSession()` and stays in
+ * sync via `onAuthStateChange`. `status` stays `loading` until the initial
+ * `getSession()` settles, so `ProtectedRoute` never has to guess.
+ *
+ * This is a subscription to an external client's auth state, not a
+ * server-data fetch — it deliberately does not go through TanStack Query
+ * (docs/standards/frontend.md's "no useEffect-based data fetching" rule
+ * targets `apps/api` reads, not the Supabase auth client's own listener).
  */
-const SessionContext = createContext<SessionContextValue>({
-  session: null,
-  user: null,
-  role: null,
-  accessToken: null,
-  status: 'anonymous',
-});
-
 export function SessionProvider({ children }: { children: ReactNode }) {
-  return (
-    <SessionContext.Provider
-      value={{ session: null, user: null, role: null, accessToken: null, status: 'anonymous' }}
-    >
-      {children}
-    </SessionContext.Provider>
-  );
-}
+  const [value, setValue] = useState<SessionContextValue>(initialSessionValue);
 
-export function useSession(): SessionContextValue {
-  return useContext(SessionContext);
+  useEffect(() => {
+    let active = true;
+
+    supabase.auth
+      .getSession()
+      .then((result) => {
+        if (!active) return;
+        setValue(deriveSessionState(result?.data?.session));
+      })
+      .catch(() => {
+        if (active) setValue({ ...initialSessionValue, status: 'anonymous' });
+      });
+
+    const subscription = supabase.auth.onAuthStateChange((_event, session) => {
+      setValue(deriveSessionState(session));
+    });
+
+    return () => {
+      active = false;
+      subscription?.data?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
