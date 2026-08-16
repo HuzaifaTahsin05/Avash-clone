@@ -56,6 +56,6 @@ load-bearing.
 
 ## Context hygiene
 
-Stay under ~40% capacity (≤100k tokens). Load the one `AGENTS.md` table
-row that matches the task; do not preload standards docs. Summarize
+Stay under ~40% capacity. Load the one `AGENTS.md` table row that
+matches the task; do not preload standards docs. Summarize
 findings instead of re-reading files.

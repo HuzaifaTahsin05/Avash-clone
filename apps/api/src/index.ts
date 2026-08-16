@@ -7,6 +7,9 @@ import { corsMiddleware } from './middleware/cors';
 import { health } from './routes/health';
 import { weather } from './routes/weather';
 import { riskMap, riskDetail } from './routes/risk-map';
+import { symptomCheck } from './routes/symptom-check';
+import { reports } from './routes/reports';
+import { resources } from './routes/resources';
 
 const app = new Hono<AppEnv>();
 
@@ -30,6 +33,9 @@ app.route('/health', health);
 app.route('/api/weather', weather);
 app.route('/api/risk-map', riskMap);
 app.route('/api/risk', riskDetail);
+app.route('/api/symptom-check', symptomCheck); // rate-limit, quota-guard
+app.route('/api/reports', reports); // turnstile+rate-limit (POST), auth+rate-limit (PATCH verify)
+app.route('/api/resources', resources); // public GETs; auth+rate-limit on PATCH blood/:id
 
 app.notFound((c) => c.json(buildGenericErrorBody(c.get('requestId')), 404));
 

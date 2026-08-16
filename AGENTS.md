@@ -64,6 +64,7 @@ about to do, then act.
 | write spatial SQL or a migration | `docs/data-schema/schema.md` |
 | add a threshold, limit, or magic number | `docs/constants-registry.md` |
 | touch a Dockerfile or `compose.yaml` | `docs/docker.md` |
+| write an implementation plan for a feature | `docs/standards/implementation-plans.md` |
 | secure a feature / fill in STRIDE | `docs/security/threat-model.md` |
 | edit any agent config or hook | `docs/standards/agent-compliance.md` |
 | pick up a defined role's scope + DoD | `.agents/task-contracts.json` |

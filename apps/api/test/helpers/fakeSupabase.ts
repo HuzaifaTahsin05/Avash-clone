@@ -16,8 +16,17 @@
 export interface FakeSupabaseRule {
   /** Exact pathname to match, e.g. `/rest/v1/region_latest_weather`. */
   path: string;
-  /** Optional extra predicate over the request's query string. */
-  match?: (searchParams: URLSearchParams) => boolean;
+  /**
+   * Optional extra predicate over the request's query string and HTTP
+   * method — the second argument, `method`, was added for the
+   * resource-ticker slice's `PATCH /blood/:id` handler, which issues both
+   * a `GET` (row lookup, via `.select()`) and a `PATCH` (`.update()`)
+   * against the same `/rest/v1/blood_inventory` path; method lets a rule
+   * distinguish the two instead of only the query string. Existing
+   * single-argument callers are unaffected — a callback that ignores the
+   * second argument still type-checks and still runs.
+   */
+  match?: (searchParams: URLSearchParams, method: string) => boolean;
   /** JSON body to return. */
   body: unknown;
   /** HTTP status to return. Defaults to 200. */
@@ -50,11 +59,15 @@ function requestUrl(input: RequestInfo | URL): URL {
 export function createFakeSupabase(rules: FakeSupabaseRule[]): FakeSupabase {
   const calls: URL[] = [];
 
-  const fetchFn = (async (input: RequestInfo | URL) => {
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input);
     calls.push(url);
 
-    const rule = rules.find((r) => url.pathname === r.path && (!r.match || r.match(url.searchParams)));
+    const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+
+    const rule = rules.find(
+      (r) => url.pathname === r.path && (!r.match || r.match(url.searchParams, method))
+    );
     if (!rule) {
       throw new Error(`fakeSupabase: no rule matched ${url.pathname}${url.search}`);
     }

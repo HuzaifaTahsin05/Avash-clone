@@ -23,10 +23,10 @@ only once the constant is actually wired into the code location listed.
 | `WEATHER_INGEST_CADENCE` | every 3h | `.github/workflows/cron-weather-ingest.yml` | freshness of weather features | implemented |
 | `RISK_MAP_CACHE_TTL_S` | s-maxage=300, swr=600 | `apps/api/src/routes/risk-map.ts` | edge cache behavior | implemented |
 | `MV_REFRESH_INTERVAL` | triggered post-batch-predict | `ml/serving/predict.py`, `scripts/refresh-materialized-views.ts` | map read freshness | implemented |
-| `BREEDING_REPORT_RATE_LIMIT` | 5/min, 20/day per IP | `packages/security` | abuse prevention | documented |
-| `SYMPTOM_CHECK_RATE_LIMIT` | 10/min, 50/day per IP | `packages/security` | Gemini cost control | documented |
-| `BLOOD_UPDATE_RATE_LIMIT` | 10/min per verified user | `packages/security` | write abuse prevention | documented |
-| `GEMINI_DAILY_QUOTA_GUARD` | 1500 req/day (global) | `packages/security/quotaGuard.ts` | free-tier cost circuit breaker | documented |
+| `BREEDING_REPORT_RATE_LIMIT` | 5/min, 20/day per IP | `packages/security` | abuse prevention | implemented |
+| `SYMPTOM_CHECK_RATE_LIMIT` | 10/min, 50/day per IP | `packages/security` | Gemini cost control | implemented |
+| `BLOOD_UPDATE_RATE_LIMIT` | 10/min per verified user | `packages/security` | write abuse prevention | implemented |
+| `GEMINI_DAILY_QUOTA_GUARD` | 1500 req/day (global) | `packages/security/quotaGuard.ts` | free-tier cost circuit breaker | implemented |
 | `ALERT_PROXIMITY_RADIUS_DEFAULT_M` | 2000 (bounds: 100–20,000) | `packages/geo`, `alert_subscriptions` check constraint | `ST_DWithin` default/ceiling | implemented |
 | `DB_STATEMENT_TIMEOUT_S` | 5 | Supabase API role config | prevents runaway spatial queries | implemented |
 | `FRONTEND_BUNDLE_BUDGET_KB` | < 180 KB gzip (shell) | `apps/web/vite.config.ts` bundle analyzer CI check | performance | implemented |
@@ -52,6 +52,18 @@ only once the constant is actually wired into the code location listed.
 | `STUB_MODEL_VERSION` | `stub-0.0.0` | `packages/types/ml.ts` | sentinel marking seeded placeholder predictions; the real pipeline writes a semver and this value disappears | implemented |
 | `MAP_DEFAULT_CENTER` | `[23.78, 90.40]` | `apps/web/src/features/map/tileLayer.ts` | initial map center (Dhaka) | implemented |
 | `MAP_DEFAULT_ZOOM` | 7 | `apps/web/src/features/map/tileLayer.ts` | initial zoom — all seeded regions visible in one view | implemented |
+| `APP_ROLE_CLAIM_PATH` | `app_metadata.role` | migration `20260815000012_app_role_and_resource_reads.sql`, `packages/security/roles.ts` | where a custom role lives in a Supabase JWT — server-controlled, unlike `user_metadata` | implemented |
+| `JWT_CLOCK_TOLERANCE_S` | 60 | `apps/api/src/lib/jwtVerify.ts` | leeway for clock skew between Supabase's issuer and the Worker | implemented |
+| `GEMINI_MODEL_ID` | `gemini-2.5-flash` | `apps/api/src/lib/geminiClient.ts` | the one value to change when swapping Gemini models | implemented |
+| `GEMINI_REQUEST_TIMEOUT_MS` | 5000 | `apps/api/src/lib/geminiClient.ts` | bounds a hung Gemini call inside the Worker's request budget | implemented |
+| `SYMPTOM_TEXT_MAX_CHARS` | 500 | `packages/types/api.ts` | §5.4 input length cap, prompt-injection surface reduction | implemented |
+| `REPORT_DESCRIPTION_MAX_CHARS` | 1000 | `packages/types/api.ts` | §5.4 input length cap | implemented |
+| `SPAM_LIKELIHOOD_REJECT_THRESHOLD` | 0.7 | `apps/api/src/routes/reports.ts` | §5.4 — above this a report is flagged, not published | implemented |
+| `REPORT_VERIFY_RATE_LIMIT` | 20/min per user | `packages/security/rateLimit.ts` | §6's moderator-verify row, previously absent from §7.3/§14 | implemented |
+| `BLOOD_UNITS_MAX` | 500 | `packages/types/api.ts` | §7.2's "wildly implausible values (99999 units)" ceiling | implemented |
+| `RESOURCE_SEARCH_RADIUS_DEFAULT_M` | 5000 (bounds 500–50,000) | `packages/types/api.ts`, `blood_within_radius()` | default/ceiling for the `ST_DWithin` blood search | implemented |
+| `HOSPITAL_RESULT_LIMIT` | 200 | `apps/api/src/routes/resources.ts` | caps a bbox or radius result set before it becomes a payload problem | implemented |
+| `RESOURCES_CACHE_TTL_S` | `s-maxage=60, swr=120` | `apps/api/src/routes/resources.ts` | short edge cache for the initial paint; live updates arrive via Realtime (ADR-010), so a long TTL would fight the ticker | implemented |
 
 `CORS_ALLOWED_ORIGINS`'s value in `apps/api/wrangler.toml` is
 `https://avash.pages.dev` — the real Cloudflare Pages project domain
@@ -76,7 +88,7 @@ config) and, for the Docker image path, is substituted automatically from
 `apps/api/src/config/cors.ts` builds the subdomain wildcard itself and
 escapes this value as a literal string.
 
-That is 42 rows covering all 43 named constants from §14 — one row,
+That is 54 rows covering all 55 named constants from §14 — one row,
 `MIN_RECALL_TARGET`/`MIN_PRECISION_TARGET`, carries two names, matching
 how §14 itself pairs them. (Rows whose *value* is a pair, such as the
 per-window rate limits and `PREDICTION_HORIZONS_WEEKS`, are one constant
@@ -137,3 +149,17 @@ change: the ten rows registered alongside that slice's contract
 rows the slice's implementation finally wired in
 (`WEATHER_INGEST_CADENCE`, `RISK_MAP_CACHE_TTL_S`, `MAP_TILE_URL_TEMPLATE`,
 `MAP_TILE_ATTRIBUTION`, `MAP_TILE_MAX_ZOOM`).
+
+The auth, symptom-checker, breeding-report, and resource-ticker slices
+flipped the remaining sixteen `documented` rows once their vertical
+slices shipped: the two rate-limit and quota rows now read by
+`symptom-check.ts` (`SYMPTOM_CHECK_RATE_LIMIT`, `GEMINI_DAILY_QUOTA_GUARD`),
+the two now read by `reports.ts` (`BREEDING_REPORT_RATE_LIMIT`,
+`REPORT_VERIFY_RATE_LIMIT`), the one read by `resources.ts`
+(`BLOOD_UPDATE_RATE_LIMIT`), `APP_ROLE_CLAIM_PATH` (`roles.ts` /
+`auth.ts`), the four Gemini/symptom-text constants (`JWT_CLOCK_TOLERANCE_S`,
+`GEMINI_MODEL_ID`, `GEMINI_REQUEST_TIMEOUT_MS`, `SYMPTOM_TEXT_MAX_CHARS`),
+and the six report/resource constants
+(`REPORT_DESCRIPTION_MAX_CHARS`, `SPAM_LIKELIHOOD_REJECT_THRESHOLD`,
+`BLOOD_UNITS_MAX`, `RESOURCE_SEARCH_RADIUS_DEFAULT_M`,
+`HOSPITAL_RESULT_LIMIT`, `RESOURCES_CACHE_TTL_S`).

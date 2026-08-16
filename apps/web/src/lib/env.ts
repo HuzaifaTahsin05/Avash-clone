@@ -6,13 +6,22 @@
  * secrets-boundary rule (packages/config/eslint-config) can verify it.
  */
 const apiBaseUrl = import.meta.env.VITE_PUBLIC_API_BASE_URL;
+const supabaseUrl = import.meta.env.VITE_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_PUBLIC_SUPABASE_ANON_KEY;
+const turnstileSiteKey = import.meta.env.VITE_PUBLIC_TURNSTILE_SITE_KEY;
 
-if (!apiBaseUrl) {
-  throw new Error(
-    'Missing required environment variable "VITE_PUBLIC_API_BASE_URL". Copy apps/web/.env.example to apps/web/.env and set it.'
-  );
+function requireVar(name: string, value: string | undefined): string {
+  if (!value) {
+    throw new Error(
+      `Missing required environment variable "${name}". Copy apps/web/.env.example to apps/web/.env and set it.`
+    );
+  }
+  return value;
 }
 
 export const env = {
-  apiBaseUrl,
+  apiBaseUrl: requireVar('VITE_PUBLIC_API_BASE_URL', apiBaseUrl),
+  supabaseUrl: requireVar('VITE_PUBLIC_SUPABASE_URL', supabaseUrl),
+  supabaseAnonKey: requireVar('VITE_PUBLIC_SUPABASE_ANON_KEY', supabaseAnonKey),
+  turnstileSiteKey: requireVar('VITE_PUBLIC_TURNSTILE_SITE_KEY', turnstileSiteKey),
 };

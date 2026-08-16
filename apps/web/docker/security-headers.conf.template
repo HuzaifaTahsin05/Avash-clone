@@ -12,8 +12,12 @@
 # directly. img-src additionally allows the OSM tile host (ADR-013,
 # MAP_TILE_URL_TEMPLATE) since raster tiles are <img> requests, not
 # connect-src traffic — kept identical to apps/web/public/_headers.
+# connect-src also names the Supabase project origin (HTTPS auth/REST, WSS
+# Realtime, ADR-010) and script-src/frame-src name Cloudflare Turnstile's
+# widget script and the iframe it renders into — kept identical to
+# apps/web/public/_headers.
 
-add_header Content-Security-Policy "default-src 'self'; connect-src 'self' __API_ORIGIN__; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org;" always;
+add_header Content-Security-Policy "default-src 'self'; connect-src 'self' __API_ORIGIN__ https://kdklmbqkczkaakgswlix.supabase.co wss://kdklmbqkczkaakgswlix.supabase.co; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org;" always;
 add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
 add_header X-Content-Type-Options "nosniff" always;
 add_header X-Frame-Options "DENY" always;

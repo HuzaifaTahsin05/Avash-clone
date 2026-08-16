@@ -11,8 +11,14 @@ open a PR from one. Never PR into `main` first.
 
 The path from finished work to `upstream/main` is always:
 
-1. Merge the local feature branch into local `dev` — locally, resolving any
-   conflicts locally. (Reset local `dev` to `origin/dev` first if it's stale.)
+1. Squash the feature branch's micro-task commits into one clean
+   Conventional Commit (`git merge --squash <branch>`), then merge into
+   local `dev` — locally, resolving any conflicts locally. (Reset local
+   `dev` to `origin/dev` first if it's stale.) Keep a commit boundary
+   unsquashed only when it is independently useful to bisect later — a
+   migration landing separately from the code that consumes it, say.
+   `dev`'s history reads as one change per slice, not a replay of every
+   task checkpoint.
 2. Test the GitHub workflows locally before anything leaves the machine
    (`actionlint` over `.github/workflows/`, plus the repo's own gates).
 3. Push `dev` to `origin`.

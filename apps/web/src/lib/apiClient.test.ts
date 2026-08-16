@@ -72,4 +72,47 @@ describe('fetchApi (R2/R3/R4/R10)', () => {
     const result = await fetchApi('/health', schema);
     expect(result.ok).toBe(false);
   });
+
+  test('a POST with a body sends it JSON-encoded and sets the method', async () => {
+    let capturedInit: RequestInit | undefined;
+    global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      capturedInit = init;
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response);
+    });
+
+    const { fetchApi } = await import('./apiClient');
+    const result = await fetchApi('/reports', schema, { method: 'POST', body: { lat: 1, lng: 2 } });
+
+    expect(result).toEqual({ ok: true, data: { ok: true } });
+    expect(capturedInit?.method).toBe('POST');
+    expect(capturedInit?.body).toBe(JSON.stringify({ lat: 1, lng: 2 }));
+    expect((capturedInit?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+  });
+
+  test('an accessToken is sent as a Bearer Authorization header', async () => {
+    let capturedInit: RequestInit | undefined;
+    global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      capturedInit = init;
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response);
+    });
+
+    const { fetchApi } = await import('./apiClient');
+    await fetchApi('/reports', schema, { accessToken: 'test-token' });
+
+    expect((capturedInit?.headers as Record<string, string>).Authorization).toBe('Bearer test-token');
+  });
+
+  test('a 401 returns a distinct generic message, not the server body', async () => {
+    mockFetchOnce({ ok: false, status: 401, json: async () => ({ error: { message: 'nope' } }) });
+    const { fetchApi } = await import('./apiClient');
+    const result = await fetchApi('/reports', schema);
+    expect(result).toEqual({ ok: false, error: 'Sign-in required. Please sign in again.' });
+  });
+
+  test('a 403 returns the same distinct message as a 401', async () => {
+    mockFetchOnce({ ok: false, status: 403, json: async () => ({}) });
+    const { fetchApi } = await import('./apiClient');
+    const result = await fetchApi('/reports', schema);
+    expect(result).toEqual({ ok: false, error: 'Sign-in required. Please sign in again.' });
+  });
 });

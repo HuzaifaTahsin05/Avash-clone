@@ -229,7 +229,9 @@ time holding the "integration seat":
 1. `git fetch origin && git rebase origin/dev` in the slice worktree.
 2. Run the full gate **in the worktree**: `pnpm lint && pnpm typecheck &&
    pnpm test && pnpm build`, plus the e2e suites the slice touches.
-3. Merge into local `dev`. Resolve conflicts here, never on a remote.
+3. Merge into local `dev` (squash-before-merge default applies —
+   `docs/standards/git-workflow.md` § promotion path). Resolve conflicts
+   here, never on a remote.
 4. Re-run the full gate on `dev` — a merge of two green branches is not
    itself green, and this is the step people skip.
 5. Push `dev`, watch Actions, fix red before anyone else takes the seat.

@@ -36,3 +36,16 @@ create or replace function auth.role() returns text
 as $$
   select nullif(current_setting('request.jwt.claim.role', true), '')::text;
 $$;
+
+-- Added for the app_role()/app_metadata custom-role mechanism
+-- (packages/db/supabase/migrations/20260815000012_app_role_and_resource_reads.sql).
+-- Matches Supabase's real auth.jwt() signature: the full decoded claims
+-- object, read from the same request.jwt.claims session setting
+-- Supavisor/PostgREST populates. LOCAL-ONLY, never applied to a real
+-- Supabase project. initdb scripts only run on an empty volume, so
+-- `pnpm docker:db:nuke` is required after editing this file.
+create or replace function auth.jwt() returns jsonb
+  language sql stable
+as $$
+  select nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+$$;

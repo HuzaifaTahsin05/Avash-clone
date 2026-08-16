@@ -375,6 +375,25 @@ create table news_items (
 
 Full policy SQL lives in `packages/db/supabase/migrations/`. RLS is **on** for every table by default; a table without RLS enabled must have an ADR justifying it.
 
+**§4.1 amendment — `role()` never evaluates to `moderator`/`admin`.**
+The table above (and migration `20260201000007_rls_policies.sql` as
+originally written) gates moderator/admin policies on
+`auth.role() in ('moderator','admin')`. `auth.role()` is a real Supabase
+Auth function, but it returns the **PostgREST** role — `anon` or
+`authenticated` — never a custom application role; there is no code path
+by which it can equal `'moderator'` or `'admin'`. Every policy written
+that way (`breeding_reports_update_moderation`,
+`hospitals_{insert,update,delete}_admin`,
+`verified_hospital_staff_{select,insert,delete}_admin`, and the two
+`news_items_*` moderation/admin policies) was dead: syntactically valid,
+never true. Migration `20260815000012_app_role_and_resource_reads.sql`
+adds `public.app_role()`, reading the custom role from
+`auth.jwt() -> 'app_metadata' ->> 'role'` (`APP_ROLE_CLAIM_PATH`, §14) —
+the Supabase-idiomatic location for a server-controlled role, since
+`app_metadata` cannot be set by the user, unlike `user_metadata` — and
+replaces every one of those policies with an `app_role()` equivalent.
+Read `app_role()` in the table above wherever `role()` appears.
+
 ### 4.2 Indexing & Query Discipline
 
 - Every geometry column: **GiST index**, non-negotiable.
@@ -525,6 +544,21 @@ security-hardening slice (§13, slice 9).
 **No `/api/jobs/*` endpoints exist.** Background jobs (weather ingest, batch predict, news scan) run as GitHub Actions workflows connecting **directly** to Supabase with the service-role key stored as a GH secret — never exposed as an invokable HTTP endpoint, removing an entire class of forged-trigger attack (ADR-007).
 
 **Contract discipline:** every request/response body has a zod schema in `packages/types`, imported by both the Hono route handler (server-side parse, reject on mismatch with generic 400) and the `apps/web` fetch wrapper (`lib/apiClient.ts`). No `any` on the wire.
+
+**§4.2/§6 amendment — `GET /api/resources/blood` runs a live `ST_DWithin`.**
+§4.2 states a general discipline: "never a live `ST_DWithin` join against
+raw tables on the request path." §6's row for this route specifies the
+opposite in the same breath: "`ST_DWithin` nearest-hospital + stock
+query." `docs/PROJECT_PLAN.md` wins on conflict, and §6's row is the more
+specific statement for this one route, so the route is implemented as §6
+describes — `public.blood_within_radius()`
+(`packages/db/supabase/migrations/20260815000012_app_role_and_resource_reads.sql`),
+called via `supabase.rpc()`. It stays acceptable only while the hospital
+count is small (tens, not thousands): the query is bounded by the
+`hospitals` GiST index, `RESOURCE_SEARCH_RADIUS_MAX_M`, and
+`HOSPITAL_RESULT_LIMIT` (§14), but none of those bounds change its
+big-O against hospital count. Flagged for the hardening slice (§13,
+slice 9) to revisit with real numbers rather than rediscovering it.
 
 ---
 
@@ -775,6 +809,18 @@ Waterfall governs the *project timeline* (mapped below to the original 10-week p
 | `STUB_MODEL_VERSION` | `stub-0.0.0` | `packages/types/ml.ts` | sentinel marking seeded placeholder predictions; the real pipeline writes a semver and this value disappears |
 | `MAP_DEFAULT_CENTER` | `[23.78, 90.40]` | `apps/web/src/features/map/tileLayer.ts` | initial map center (Dhaka) |
 | `MAP_DEFAULT_ZOOM` | 7 | `apps/web/src/features/map/tileLayer.ts` | initial zoom — all seeded regions visible in one view |
+| `APP_ROLE_CLAIM_PATH` | `app_metadata.role` | migration `20260815000012_app_role_and_resource_reads.sql`, `packages/security/roles.ts` | where a custom role lives in a Supabase JWT — server-controlled, unlike `user_metadata` |
+| `JWT_CLOCK_TOLERANCE_S` | 60 | `apps/api/src/lib/jwtVerify.ts` | leeway for clock skew between Supabase's issuer and the Worker |
+| `GEMINI_MODEL_ID` | `gemini-2.5-flash` | `apps/api/src/lib/geminiClient.ts` | the one value to change when swapping Gemini models |
+| `GEMINI_REQUEST_TIMEOUT_MS` | 5000 | `apps/api/src/lib/geminiClient.ts` | bounds a hung Gemini call inside the Worker's request budget |
+| `SYMPTOM_TEXT_MAX_CHARS` | 500 | `packages/types/api.ts` | §5.4 input length cap, prompt-injection surface reduction |
+| `REPORT_DESCRIPTION_MAX_CHARS` | 1000 | `packages/types/api.ts` | §5.4 input length cap |
+| `SPAM_LIKELIHOOD_REJECT_THRESHOLD` | 0.7 | `apps/api/src/routes/reports.ts` | §5.4 — above this a report is flagged, not published |
+| `REPORT_VERIFY_RATE_LIMIT` | 20/min per user | `packages/security/rateLimit.ts` | §6's moderator-verify row, previously absent from §7.3/§14 |
+| `BLOOD_UNITS_MAX` | 500 | `packages/types/api.ts` | §7.2's "wildly implausible values (99999 units)" ceiling |
+| `RESOURCE_SEARCH_RADIUS_DEFAULT_M` | 5000 (bounds 500–50,000) | `packages/types/api.ts`, `blood_within_radius()` | default/ceiling for the `ST_DWithin` blood search |
+| `HOSPITAL_RESULT_LIMIT` | 200 | `apps/api/src/routes/resources.ts` | caps a bbox or radius result set before it becomes a payload problem |
+| `RESOURCES_CACHE_TTL_S` | `s-maxage=60, swr=120` | `apps/api/src/routes/resources.ts` | short edge cache for the initial paint; live updates arrive via Realtime (ADR-010), so a long TTL would fight the ticker |
 
 ---
 

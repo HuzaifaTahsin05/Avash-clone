@@ -188,6 +188,57 @@ if (eager > EAGER_LINE_BUDGET)
       `every session by every tool — move something to a routing row or a skill.`,
   );
 
+// ------------------------------------------------- routing table mirrored per tool
+//
+// AGENTS.md's routing table is the source. `.codex/config.yaml`,
+// `.cursor/settings.json`, and `.github/copilot-instructions.md` each carry
+// their own rendering of it (per-tool syntax, "about to…" wording may
+// differ) — but the *set of target doc paths* must match exactly, or a row
+// added for one tool silently never reaches the others. `.claude/settings.json`
+// is exempt: Claude Code gets these as skills instead (AGENTS.md: "Claude
+// Code additionally auto-surfaces these as skills; other tools use this
+// table").
+
+const routingSet = new Set(routing);
+
+function extractYamlRouting(body) {
+  const block = /readBeforeYouAct:\s*\n((?:[ \t]+\S.*\n?)+)/.exec(body)?.[1] ?? "";
+  return new Set([...block.matchAll(/^[ \t]+[\w./-]+:\s*(\S+)\s*$/gm)].map((m) => m[1]));
+}
+
+function extractCursorRouting(body) {
+  const rule = JSON.parse(body).rules?.find((r) => r.startsWith("READ BEFORE YOU ACT"));
+  if (!rule) return new Set();
+  return new Set([...rule.matchAll(/->\s*([^\s|]+)/g)].map((m) => m[1]));
+}
+
+function extractMarkdownTableRouting(body) {
+  return new Set([...body.matchAll(/^\|\s*[^|]+\|\s*`([^`]+)`\s*\|$/gm)].map((m) => m[1]));
+}
+
+const MIRRORS = [
+  [".codex/config.yaml", extractYamlRouting],
+  [".cursor/settings.json", extractCursorRouting],
+  [".github/copilot-instructions.md", extractMarkdownTableRouting],
+];
+
+for (const [path, extract] of MIRRORS) {
+  if (!has(path)) continue; // reported by the pointer-file check above
+  let mirrored;
+  try {
+    mirrored = extract(read(path));
+  } catch (err) {
+    fail(`${path}'s routing table could not be parsed: ${err.message}`);
+    continue;
+  }
+  const missing = [...routingSet].filter((p) => !mirrored.has(p));
+  const extra = [...mirrored].filter((p) => !routingSet.has(p));
+  if (missing.length)
+    fail(`${path} is missing routing row(s) present in AGENTS.md: ${missing.join(", ")}`);
+  if (extra.length)
+    fail(`${path} routes to path(s) AGENTS.md's table does not: ${extra.join(", ")}`);
+}
+
 // ------------------------------------------------------- unknown config files
 
 const CANDIDATE_DIRS = [".claude", ".cursor", ".codex", ".agents"];
