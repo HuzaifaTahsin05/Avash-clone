@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
 
 /**
@@ -11,18 +10,15 @@ import { test, expect, type Page } from '@playwright/test';
  * verbatim under that key with no wrapper). This is deterministic and
  * network-free — see docs/features/authentication.md for why this was
  * chosen over `page.route` interception of the GoTrue REST API.
+ *
+ * The project ref is hardcoded here (not read from `apps/web/.env`) since
+ * that file is gitignored and doesn't exist in CI's `e2e-web` job, which
+ * runs against a pre-built `dist/` with no `.env` step. The Supabase
+ * project URL itself is public/non-secret (RLS, not secrecy, is the real
+ * access gate — §4.1), so hardcoding it is safe.
  */
-function readSupabaseProjectRef(): string {
-  const envFile = readFileSync('.env', 'utf-8');
-  const match = envFile.match(/VITE_PUBLIC_SUPABASE_URL=(\S+)/);
-  const url = match?.[1];
-  if (!url) {
-    throw new Error('VITE_PUBLIC_SUPABASE_URL not set in apps/web/.env — cannot derive the storage key.');
-  }
-  return new URL(url).hostname.split('.')[0] ?? '';
-}
-
-const STORAGE_KEY = `sb-${readSupabaseProjectRef()}-auth-token`;
+const SUPABASE_PROJECT_REF = 'kdklmbqkczkaakgswlix';
+const STORAGE_KEY = `sb-${SUPABASE_PROJECT_REF}-auth-token`;
 
 function fakeSession(role: 'moderator' | 'admin' | null) {
   return {

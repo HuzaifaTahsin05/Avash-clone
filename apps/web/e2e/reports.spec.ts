@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
 
 /**
@@ -18,18 +17,14 @@ const SUPABASE_URL = 'https://kdklmbqkczkaakgswlix.supabase.co';
  * `/login` before `Moderation.tsx` ever renders. Seeding a fake moderator
  * session via the same localStorage technique as `auth.spec.ts` is the only
  * way to reach the page's own content in this suite.
+ *
+ * The project ref is derived from `SUPABASE_URL` above rather than read
+ * from `apps/web/.env` — that file is gitignored and doesn't exist in CI's
+ * `e2e-web` job (which runs against a pre-built `dist/`, no `.env` step),
+ * so a file read here would throw there. The URL itself is public/non-secret
+ * (RLS, not secrecy, is the real access gate — §4.1), so hardcoding it is safe.
  */
-function readSupabaseProjectRef(): string {
-  const envFile = readFileSync('.env', 'utf-8');
-  const match = envFile.match(/VITE_PUBLIC_SUPABASE_URL=(\S+)/);
-  const url = match?.[1];
-  if (!url) {
-    throw new Error('VITE_PUBLIC_SUPABASE_URL not set in apps/web/.env — cannot derive the storage key.');
-  }
-  return new URL(url).hostname.split('.')[0] ?? '';
-}
-
-const STORAGE_KEY = `sb-${readSupabaseProjectRef()}-auth-token`;
+const STORAGE_KEY = `sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`;
 
 async function signInAsModerator(page: Page) {
   const session = {
